@@ -2,6 +2,8 @@
 
 A procedural Three.js carrier air-combat arcade game. This version is organised as a Vite project with ES modules instead of a single HTML file.
 
+PLAY RIGHT NOW at: **https://ne1.net/wingsoffury/**
+
 ## Run
 
 ```bash
