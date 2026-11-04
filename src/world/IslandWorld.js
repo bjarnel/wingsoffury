@@ -10,9 +10,6 @@ import { addPart, mergeParts } from '../models/parts.js';
 const terrainMaterial = new THREE.MeshStandardMaterial({
   vertexColors: true, roughness: 0.97, metalness: 0.015, flatShading: true,
 });
-const backdropMaterial = new THREE.MeshStandardMaterial({
-  vertexColors: true, roughness: 1, metalness: 0, flatShading: true,
-});
 const shoreFoamMaterial = new THREE.MeshBasicMaterial({
   color: 0xe1e5cf, transparent: true, opacity: 0.09, depthWrite: false, side: THREE.DoubleSide,
 });
@@ -56,7 +53,6 @@ class IslandWorld {
     if (this.onUnload) this.onUnload(chunk);
     scene.remove(chunk.group);
     if (chunk.terrainGeo) chunk.terrainGeo.dispose();
-    if (chunk.backdropGeo) chunk.backdropGeo.dispose();
     if (chunk.shoreGeo) chunk.shoreGeo.dispose();
     if (chunk.treeMesh && chunk.treeMesh.dispose) chunk.treeMesh.dispose();
     // Tree geometry and materials are shared, so only the instanced-mesh wrapper is discarded.
@@ -262,45 +258,6 @@ class IslandWorld {
         chunk.treeMesh = inst;
         group.add(inst);
       }
-
-      // A darker, distant ridge behind the main island gives the coast real depth.
-      const bgNZ = 5;
-      const bgNX = 17;
-      const bgPositions = new Float32Array(bgNX * bgNZ * 3);
-      const bgColors = new Float32Array(bgNX * bgNZ * 3);
-      const bgIndices = [];
-      const bgColor = new THREE.Color(0x3e5b53);
-      for (let iz = 0; iz < bgNZ; iz++) {
-        for (let ix = 0; ix < bgNX; ix++) {
-          const lx = (ix / (bgNX - 1)) * W;
-          const z = -265 + iz * 13;
-          const ridge = Math.max(0, this.noise.fbm((lx + start * 0.73) * 0.009 + 9.7, iz * 0.3 + 4.2, 4) * 0.5 + 0.5);
-          const edge = smoothstep(0, 0.16, ix / (bgNX - 1)) * smoothstep(1, 0.84, ix / (bgNX - 1));
-          const y = ridge * (8 + rng() * 8) * edge;
-          const id = iz * bgNX + ix;
-          bgPositions[id * 3] = lx;
-          bgPositions[id * 3 + 1] = y;
-          bgPositions[id * 3 + 2] = z;
-          bgColors[id * 3] = bgColor.r;
-          bgColors[id * 3 + 1] = bgColor.g;
-          bgColors[id * 3 + 2] = bgColor.b;
-        }
-      }
-      for (let iz = 0; iz < bgNZ - 1; iz++) {
-        for (let ix = 0; ix < bgNX - 1; ix++) {
-          const a = iz * bgNX + ix, b = a + 1, c = a + bgNX, d = c + 1;
-          bgIndices.push(a, c, b, b, c, d);
-        }
-      }
-      const bgGeo = new THREE.BufferGeometry();
-      bgGeo.setAttribute('position', new THREE.BufferAttribute(bgPositions, 3));
-      bgGeo.setAttribute('color', new THREE.BufferAttribute(bgColors, 3));
-      bgGeo.setIndex(bgIndices);
-      bgGeo.computeVertexNormals();
-      const bgMesh = new THREE.Mesh(bgGeo, backdropMaterial);
-      bgMesh.receiveShadow = false;
-      group.add(bgMesh);
-      chunk.backdropGeo = bgGeo;
 
       // Surf rings around the shoreline.
       const shoreGeo = new THREE.RingGeometry(0.88, 1.0, 40);

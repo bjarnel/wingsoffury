@@ -57,6 +57,7 @@ class Game {
     this.mouseLocked = false;
     this.hadMouseLock = false;
     this.mouseAimHintShown = false;
+    this.mouseAimTracking = false;
     this.mouseSensitivity = 0.00155;
     this.suppressEscapePauseUntil = 0;
     this.player = this.makePlayerState();
@@ -202,23 +203,50 @@ class Game {
         case 'ControlLeft': case 'ControlRight': this.input.throttleDown = false; break;
         case 'Space': this.input.fire = false; break;
       }
+      if (['KeyW', 'ArrowUp', 'KeyS', 'ArrowDown'].includes(e.code) && this.mouseAimTracking && !this.input.up && !this.input.down) {
+        // Hand the current pitch over to mouse trim so releasing a keyboard key
+        // never snaps the nose back while the player is fine-aiming.
+        this.player.aimPitch = clamp(this.player.pitch, -0.74, 0.74);
+      }
     });
   }
 
   bindMouseInput() {
     const canvas = renderer.domElement;
-    canvas.addEventListener('mousedown', () => {
-      if (!this.started || this.paused || this.mode === 'gameover') return;
-      if (document.pointerLockElement !== canvas) this.requestMouseAim();
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 0) {
+        if (!this.started || this.paused || this.mode === 'gameover') return;
+        if (document.pointerLockElement !== canvas) this.requestMouseAim();
+        if (this.mode === 'flying' || this.mode === 'ready' || this.mode === 'takeoff') {
+          this.input.fire = true;
+          this.input.firePressed = true;
+        }
+        e.preventDefault();
+      } else if (e.button === 2) {
+        if (!this.started || this.paused || this.mode !== 'flying') return;
+        if (this.player.weapon !== 'bomb') this.dropBomb();
+        e.preventDefault();
+      }
     });
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 0) this.input.fire = false;
+    });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('mousemove', (e) => {
       if (!this.started || this.paused || this.mode !== 'flying') return;
       const overGame = document.pointerLockElement === canvas || e.target === canvas;
       if (!overGame || !e.movementY) return;
       const p = this.player;
+      if (!this.mouseAimTracking) {
+        // Start mouse aim from the attitude the aircraft actually has, instead of
+        // from a zero trim. This prevents a keyboard dive from making the first
+        // downward mouse movement feel like it is pitching back up.
+        p.aimPitch = clamp(p.pitch, -0.74, 0.74);
+        this.mouseAimTracking = true;
+      }
       // Pointer movement up (negative movementY) raises the nose. The trim is
       // persistent, so small mouse movements give precise gun-line corrections.
-      p.aimPitch = clamp((p.aimPitch || 0) - e.movementY * this.mouseSensitivity, -0.62, 0.62);
+      p.aimPitch = clamp(p.aimPitch - e.movementY * this.mouseSensitivity, -0.74, 0.74);
       if (!this.mouseAimHintShown) {
         this.mouseAimHintShown = true;
         this.notify('MOUSE AIM', 'Move up / down to pitch · C centres trim', 2.4, 'cyan');
@@ -302,6 +330,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     this.shakeAmount = 0;
     this.best = loadBest();
     this.player = this.makePlayerState();
+    this.mouseAimTracking = false;
     this.playerModel.visible = true;
     this.playerModel.position.set(this.player.x, this.player.y, this.player.z);
     this.playerModel.rotation.y = 0;
@@ -476,6 +505,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     p.dir = 1;
     p.visualYaw = 0;
     p.aimPitch = 0;
+    this.mouseAimTracking = false;
     p.speed = Math.max(p.speed, 18);
     p.throttle = 1;
     p.invulnerable = 2.2;
@@ -589,7 +619,10 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     p.speed = clamp(p.speed, 0, CONFIG.maxSpeed);
 
     const pitchInput = (this.input.up ? 1 : 0) - (this.input.down ? 1 : 0);
-    let pitchTarget = clamp(pitchInput * 0.58 + (p.aimPitch || 0), -0.74, 0.74);
+    // Keyboard has full authority while held. With the keyboard neutral, the
+    // mouse trim is the target instead of being added on top of a stale key angle.
+    let pitchTarget = pitchInput !== 0 ? pitchInput * 0.58 : (this.mouseAimTracking ? (p.aimPitch || 0) : 0);
+    pitchTarget = clamp(pitchTarget, -0.74, 0.74);
     const stalled = p.speed < CONFIG.stallSpeed;
     if (stalled) {
       const stallDepth = clamp((CONFIG.stallSpeed - p.speed) / CONFIG.stallSpeed, 0, 1);
@@ -811,6 +844,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
   respawnOnCarrier() {
     const sortieWas = this.sortie;
     this.player = this.makePlayerState();
+    this.mouseAimTracking = false;
     this.player.x = -57;
     this.player.y = CONFIG.deckY + 2.2;
     this.player.invulnerable = 2.5;

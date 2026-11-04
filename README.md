@@ -32,7 +32,8 @@ Internet access is not required at runtime anymore: Three.js is installed from n
 | Click the canvas | Capture the mouse with Pointer Lock for continuous aiming |
 | `A` / `D` or `←` / `→` | Bank and reverse heading |
 | `Shift` / `Ctrl` | Throttle up / down |
-| `Space` | Fire selected weapon |
+| `Space` / **Left mouse** | Fire the selected weapon |
+| **Right mouse** | Quick-drop a bomb when bombs are not the selected weapon |
 | `1` / `2` / `3` | Machine guns / bombs / rockets |
 | `B` / `R` | Quick bomb / rocket |
 | `Esc` or `P` | Pause |
