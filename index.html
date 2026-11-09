@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="theme-color" content="#07151c" />
 <!--
   WINGS OF FURY — PACIFIC STRIKE
@@ -77,7 +77,7 @@
       </div>
     </div>
 
-    <div id="carrierTag"><span class="carrier-arrow">◀</span> <span id="carrierText">CV-13 WASP · 1.8 KM</span></div>
+    <div id="carrierTag"><span class="carrier-arrow">◀</span> <span id="carrierText">CV-18 WASP · 1.8 KM</span></div>
 
     <div id="reticle">
       <span class="ret-h l"></span><span class="ret-h r"></span><span class="ret-dot"></span>
@@ -85,6 +85,7 @@
     <div id="bombSight"></div>
     <div id="messages"></div>
     <div id="warning">Stall</div>
+    <div id="debug" class="hidden"></div>
 
     <div class="hud-bottom">
       <div class="flight-deck">
@@ -119,13 +120,43 @@
         <div class="radar-foot"><span>◀ WEST</span><span id="radarRange">+/- 1.2 KM</span><span>EAST ▶</span></div>
       </div>
     </div>
+
+    <!-- Touch controls: only shown on coarse-pointer devices while the HUD is visible. -->
+    <div id="touchControls" class="touch-controls">
+      <div id="touchTop">
+        <button id="touchPause" class="touch-icon" type="button" aria-label="Pause">II</button>
+        <button id="touchMute" class="touch-icon" type="button" aria-label="Mute">♪</button>
+      </div>
+
+      <div id="touchStick" class="touch-stick" aria-label="Flight stick: drag for pitch and turn">
+        <div class="touch-stick-ring"></div>
+        <div id="touchKnob" class="touch-knob"></div>
+      </div>
+
+      <div id="touchThrottle" class="touch-throttle">
+        <span class="touch-throttle-label">THR</span>
+        <div id="touchThrottleRail" class="touch-throttle-rail">
+          <div id="touchThrottleFill" class="touch-throttle-fill"></div>
+          <div id="touchThrottleKnob" class="touch-throttle-knob"></div>
+        </div>
+      </div>
+
+      <div id="touchWeapons" class="touch-weapons">
+        <span id="touchAmmo" class="touch-ammo">600</span>
+        <button class="touch-weapon active" data-weapon="mg" type="button">GUN</button>
+        <button class="touch-weapon" data-weapon="bomb" type="button">BOMB</button>
+        <button class="touch-weapon" data-weapon="rocket" type="button">RKT</button>
+      </div>
+
+      <button id="touchFire" class="touch-fire" type="button" aria-label="Fire">FIRE</button>
+    </div>
   </div>
 
   <!-- MENU -->
   <div id="menu" class="screen">
     <div class="menu-top">
       <div class="brand-rule">Pacific theater · 1944 · Carrier strike group</div>
-      <div class="menu-time">USS WASP (CV-13)<br><span id="menuClock">17:42 LOCAL</span><br>SOLOMON SEA</div>
+      <div class="menu-time">USS WASP (CV-18)<br><span id="menuClock">17:42 LOCAL</span><br>SOLOMON SEA</div>
     </div>
     <div class="screen-inner">
       <div class="menu-hero">
@@ -137,6 +168,7 @@
           <button class="btn-primary" id="startBtn">Launch mission</button>
           <div class="start-hint"><kbd>SPACE</kbd> / <kbd>ENTER</kbd> to scramble</div>
         </div>
+        <div class="touch-menu-hint">Left: pitch &amp; turn · Right: throttle / weapons / fire</div>
       </div>
       <div class="menu-lower">
         <div class="controls-card">
@@ -144,7 +176,7 @@
           <div class="controls-grid">
             <div class="control"><span class="keys"><span class="key">W</span><span class="key">S</span></span> pitch / climb &amp; dive</div>
             <div class="control"><span class="keys"><span class="key">MOUSE</span></span> move up / down to pitch</div>
-            <div class="control"><span class="keys"><span class="key">A</span><span class="key">D</span></span> bank &amp; reverse</div>
+            <div class="control"><span class="keys"><span class="key">A</span><span class="key">D</span></span> bank &amp; turn</div>
             <div class="control"><span class="keys"><span class="key">SHIFT</span><span class="key">CTRL</span></span> throttle</div>
             <div class="control"><span class="keys"><span class="key">SPACE</span></span> fire selected weapon</div>
             <div class="control"><span class="keys"><span class="key">1</span><span class="key">2</span><span class="key">3</span></span> guns / bombs / rockets</div>
@@ -164,7 +196,7 @@
           to trap, repair, and rearm
         </div>
       </div>
-      <div class="menu-callsign">COMBAT AIR PATROL · VF-13</div>
+      <div class="menu-callsign">COMBAT AIR PATROL · VF-18</div>
     </div>
   </div>
 
@@ -184,7 +216,7 @@
   <!-- GAME OVER -->
   <div id="gameover" class="screen hidden">
     <div class="sheet">
-      <div class="sheet-kicker">Action report · VF-13</div>
+      <div class="sheet-kicker">Action report · VF-18</div>
       <h2 id="gameoverTitle">Lost at sea</h2>
       <p id="gameoverText">Your Hellcat will not be returning to the Wasp. The task force presses on.</p>
       <div class="statline">

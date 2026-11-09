@@ -30,6 +30,7 @@ const ui = {
   armorBar: $('#armorBar'),
   armorBarWrap: $('#armorBarWrap'),
   warning: $('#warning'),
+  debug: $('#debug'),
   objective: $('#objective'),
   carrierTag: $('#carrierTag'),
   carrierText: $('#carrierText'),
@@ -47,6 +48,17 @@ const ui = {
   gameoverTitle: $('#gameoverTitle'),
   gameoverText: $('#gameoverText'),
   headingTicks: $('#headingTicks'),
+  touchStick: $('#touchStick'),
+  touchKnob: $('#touchKnob'),
+  touchThrottle: $('#touchThrottle'),
+  touchThrottleRail: $('#touchThrottleRail'),
+  touchThrottleFill: $('#touchThrottleFill'),
+  touchThrottleKnob: $('#touchThrottleKnob'),
+  touchFire: $('#touchFire'),
+  touchWeapons: $$('.touch-weapon'),
+  touchAmmo: $('#touchAmmo'),
+  touchPause: $('#touchPause'),
+  touchMute: $('#touchMute'),
 };
 
 const PLAYER_RANKS = [

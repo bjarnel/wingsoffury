@@ -32,16 +32,29 @@ Internet access is not required at runtime anymore: Three.js is installed from n
 | **Mouse move up / down** | Pitch up / pitch down (relative aim) |
 | `C` | Centre mouse pitch trim |
 | Click the canvas | Capture the mouse with Pointer Lock for continuous aiming |
-| `A` / `D` or `←` / `→` | Bank and reverse heading |
+| `A` / `D` or `←` / `→` | Bank and turn (hold to bank, release past halfway to complete) |
 | `Shift` / `Ctrl` | Throttle up / down |
 | `Space` / **Left mouse** | Fire the selected weapon |
 | **Right mouse** | Quick-drop a bomb when bombs are not the selected weapon |
 | `1` / `2` / `3` | Machine guns / bombs / rockets |
 | `B` / `R` | Quick bomb / rocket |
 | `Esc` or `P` | Pause |
+| `F3` | Toggle debug telemetry |
 | `M` | Mute |
 
 Moving the mouse up raises the nose; moving it down lowers the nose. The trim is persistent, so small mouse movements can be used for precise gun-line corrections. Press `C` to re-centre it, or click the canvas to lock the pointer so you never run out of mouse mat.
+
+### Touch controls
+
+On phones and tablets the game switches to an on-screen layout:
+
+- **Left stick** — pitch up/down and bank/turn left/right.
+- **Right throttle rail** — drag to set throttle directly.
+- **GUN / BOMB / RKT** — select ordnance; the FIRE button changes label to match.
+- **FIRE** — hold for machine guns, tap for bombs or rockets.
+- **Top-right buttons** — pause and mute.
+
+Landscape gives the widest view, but the portrait layout is fully playable. The HUD, safe-area insets, and pixel ratio are tuned for small screens.
 
 ## Source layout
 

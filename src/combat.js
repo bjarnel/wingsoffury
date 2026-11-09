@@ -295,6 +295,7 @@ class CombatSystem {
     for (const f of [...this.fighters]) this.removeFighter(f);
     this.fighters.length = 0;
     this.banditTimer = 21;
+    this.banditWave = 0;
     tracers.update([]);
   }
 }
@@ -360,15 +361,19 @@ CombatSystem.prototype.firePlayerGuns = function () {
   const player = this.game.player;
   if (player.ammo <= 0) return;
   const alternating = player.gunSide = -(player.gunSide || 1);
-  const dir = player.dir;
-  const muzzleX = player.x + dir * 5.25;
+  // During a bank the nose projects a shorter horizontal vector. Keep a small
+  // minimum so rounds still leave the aircraft when it is nearly edge-on.
+  const projected = player.facingX ?? player.dir;
+  const sign = Math.sign(projected) || player.dir;
+  const facing = Math.abs(projected) >= 0.18 ? projected : sign * 0.18;
+  const muzzleX = player.x + facing * 5.25;
   const muzzleY = player.y - 0.06 + alternating * 0.15;
   const muzzleZ = player.z + alternating * 1.3;
   const speed = 360;
   this.bullets.push({
     x: muzzleX, y: muzzleY, z: muzzleZ,
     prevX: muzzleX, prevY: muzzleY, prevZ: muzzleZ,
-    vx: player.vx * 0.22 + dir * Math.cos(player.pitch) * speed,
+    vx: player.vx * 0.22 + facing * Math.cos(player.pitch) * speed,
     vy: player.vy * 0.2 + Math.sin(player.pitch) * speed,
     vz: 0,
     life: 0.95,
@@ -378,7 +383,7 @@ CombatSystem.prototype.firePlayerGuns = function () {
     radius: 0.1,
     age: 0,
   });
-  particles.fire(muzzleX, muzzleY, muzzleZ, 2, { size: 2.1, life: 0.1, vx: dir * 14, vy: 0.6, alpha: 0.85 });
+  particles.fire(muzzleX, muzzleY, muzzleZ, 2, { size: 2.1, life: 0.1, vx: facing * 14, vy: 0.6, alpha: 0.85 });
   this.game.audio.mg();
   this.game.shake(0.1);
 };
@@ -396,7 +401,8 @@ CombatSystem.prototype.spawnBomb = function () {
   }
   const mesh = new THREE.Mesh(this.bombPrototype, unitMaterial);
   mesh.castShadow = true;
-  mesh.position.set(player.x + player.dir * 0.8, player.y - 1.8, player.z);
+  const facing = player.facingX ?? player.dir;
+  mesh.position.set(player.x + facing * 0.8, player.y - 1.8, player.z);
   mesh.rotation.z = Math.atan2(player.vy, player.vx || 0.01);
   scene.add(mesh);
   this.bombs.push({
@@ -419,16 +425,19 @@ CombatSystem.prototype.spawnRocket = function () {
   const mesh = new THREE.Mesh(this.rocketGeometry, this.rocketMaterial);
   mesh.castShadow = true;
   const zSide = Math.random() < 0.5 ? -1.7 : 1.7;
-  mesh.position.set(player.x + player.dir * 4.7, player.y - 0.55, player.z + zSide);
+  const projected = player.facingX ?? player.dir;
+  const facing = Math.abs(projected) >= 0.18 ? projected : (Math.sign(projected) || player.dir) * 0.18;
+  const dir = Math.sign(facing) || player.dir;
+  mesh.position.set(player.x + facing * 4.7, player.y - 0.55, player.z + zSide);
   scene.add(mesh);
   this.rockets.push({
     mesh,
     x: mesh.position.x, y: mesh.position.y, z: mesh.position.z,
-    vx: player.vx * 0.25 + player.dir * Math.cos(player.pitch) * 175,
+    vx: player.vx * 0.25 + facing * Math.cos(player.pitch) * 175,
     vy: player.vy * 0.2 + Math.sin(player.pitch) * 175 + 1.6,
     life: 3.4,
     trail: 0,
-    dir: player.dir,
+    dir,
   });
   this.game.audio.noiseBurst(0.35, 0.18, 'highpass', 900, undefined, clamp((player.x) / 400, -1, 1));
   this.game.shake(0.18);
@@ -623,8 +632,9 @@ CombatSystem.prototype.updateRockets = function (dt) {
 CombatSystem.prototype.spawnEnemyFighter = function () {
   const player = this.game.player;
   const root = createEnemyFighterMesh();
-  const dir = -player.dir;
-  root.position.set(player.x + player.dir * 540 + rand(-60, 60), clamp(player.y + rand(15, 55), 32, 190), rand(-5, 5));
+  const facing = Math.sign(player.facingX ?? player.dir) || player.dir;
+  const dir = -facing;
+  root.position.set(player.x + facing * 540 + rand(-60, 60), clamp(player.y + rand(15, 55), 32, 190), rand(-5, 5));
   scene.add(root);
   const f = {
     id: `fighter-${performance.now()}-${Math.random()}`,

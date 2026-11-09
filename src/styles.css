@@ -24,10 +24,14 @@
     -webkit-font-smoothing:antialiased;
     user-select:none;
     touch-action:none;
+    overscroll-behavior:none;
+    -webkit-tap-highlight-color:transparent;
+    -webkit-touch-callout:none;
   }
   button{font:inherit;color:inherit}
   canvas{display:block}
   #app{position:fixed;inset:0;overflow:hidden;isolation:isolate;background:#07151c}
+  @supports (height:100dvh){#app{height:100dvh}}
   #game{position:absolute;inset:0;width:100%;height:100%;outline:none}
 
   /* ---------- shared atmosphere overlays ---------- */
@@ -191,6 +195,14 @@
     text-shadow:0 0 18px rgba(255,80,52,.45);
   }
   #warning.visible{opacity:1;animation:warningPulse 1s steps(2) infinite}
+
+  #debug{
+    position:absolute;left:12px;bottom:150px;z-index:30;max-width:min(820px,72vw);
+    padding:6px 9px;border:1px solid rgba(125,228,212,.26);
+    background:rgba(3,14,18,.84);color:var(--cyan);
+    font-family:var(--mono);font-size:9px;line-height:1.5;letter-spacing:.035em;
+    white-space:pre-wrap;pointer-events:none;text-shadow:0 1px 4px rgba(0,0,0,.6)
+  }
   @keyframes warningPulse{50%{opacity:.55}}
 
   /* bottom HUD */
@@ -368,4 +380,195 @@
   @media (prefers-reduced-motion:reduce){
     .grain{animation:none}
     *{scroll-behavior:auto!important}
+  }
+
+  /* ---------- touch controls (coarse pointer / phones) ---------- */
+  .touch-controls{display:none}
+  .touch-menu-hint{display:none}
+  body.touch #hud.visible .touch-controls{display:block}
+  body.touch .touch-menu-hint{
+    display:block;margin-top:16px;max-width:330px;
+    font-size:8px;line-height:1.7;letter-spacing:.09em;
+    color:rgba(244,232,202,.78);text-transform:uppercase;
+    border-left:1px solid rgba(255,210,122,.45);padding-left:10px
+  }
+
+  #touchControls{position:absolute;inset:0;z-index:28;pointer-events:none}
+  #touchTop{
+    position:absolute;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));
+    display:flex;gap:8px;pointer-events:auto
+  }
+  .touch-icon{
+    width:42px;height:42px;border-radius:9px;border:1px solid rgba(244,232,202,.3);
+    background:rgba(4,17,21,.72);color:var(--cream);font-family:var(--display);
+    font-size:13px;letter-spacing:.08em;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    touch-action:none;cursor:pointer
+  }
+  .touch-icon:active{background:rgba(244,232,202,.14)}
+  .touch-icon.muted{color:var(--red);border-color:rgba(255,107,81,.5)}
+
+  #touchStick{
+    position:absolute;left:max(16px,env(safe-area-inset-left));bottom:max(16px,env(safe-area-inset-bottom));
+    width:132px;height:132px;border-radius:50%;pointer-events:auto;touch-action:none;
+    background:radial-gradient(circle at 50% 50%,rgba(125,228,212,.1),rgba(4,17,21,.46) 72%);
+    border:1px solid rgba(125,228,212,.3);
+    box-shadow:inset 0 0 26px rgba(0,0,0,.4),0 0 24px rgba(0,0,0,.22)
+  }
+  #touchStick::before,#touchStick::after{content:"";position:absolute;background:rgba(125,228,212,.14);pointer-events:none}
+  #touchStick::before{left:50%;top:14%;bottom:14%;width:1px}
+  #touchStick::after{top:50%;left:14%;right:14%;height:1px}
+  .touch-stick-ring{position:absolute;inset:18%;border:1px dashed rgba(125,228,212,.22);border-radius:50%}
+  .touch-knob{
+    position:absolute;left:50%;top:50%;width:50px;height:50px;margin:-25px 0 0 -25px;border-radius:50%;
+    background:radial-gradient(circle at 35% 30%,rgba(125,228,212,.6),rgba(16,60,64,.9));
+    border:1px solid rgba(125,228,212,.6);
+    box-shadow:0 0 20px rgba(125,228,212,.22),inset 0 0 14px rgba(0,0,0,.3);
+    transition:transform .05s linear;will-change:transform;pointer-events:none
+  }
+
+  #touchThrottle{
+    position:absolute;right:max(12px,env(safe-area-inset-right));
+    bottom:calc(190px + env(safe-area-inset-bottom));
+    width:44px;height:150px;display:flex;flex-direction:column;align-items:center;gap:6px;
+    pointer-events:auto;touch-action:none
+  }
+  .touch-throttle-label{font-size:7px;letter-spacing:.18em;color:rgba(244,232,202,.65)}
+  .touch-throttle-rail{
+    position:relative;flex:1;width:16px;border-radius:9px;
+    background:rgba(244,232,202,.1);border:1px solid rgba(244,232,202,.22);touch-action:none
+  }
+  .touch-throttle-fill{
+    position:absolute;left:0;right:0;bottom:0;height:55%;border-radius:8px;
+    background:linear-gradient(0deg,var(--cyan),var(--gold));opacity:.75;pointer-events:none
+  }
+  .touch-throttle-knob{
+    position:absolute;left:50%;bottom:55%;width:30px;height:16px;transform:translate(-50%,50%);
+    border-radius:5px;background:linear-gradient(180deg,rgba(255,210,122,.95),rgba(255,174,74,.82));
+    border:1px solid rgba(255,210,122,.8);box-shadow:0 0 12px rgba(255,210,122,.3);pointer-events:none
+  }
+
+  #touchWeapons{
+    position:absolute;right:max(18px,env(safe-area-inset-right));
+    bottom:calc(126px + env(safe-area-inset-bottom));
+    display:flex;align-items:center;gap:6px;pointer-events:auto
+  }
+  .touch-ammo{
+    min-width:30px;text-align:right;font-family:var(--display);font-size:14px;
+    letter-spacing:.06em;color:var(--cream);text-shadow:0 1px 4px rgba(0,0,0,.7)
+  }
+  .touch-weapon{
+    min-width:44px;height:34px;padding:0 6px;border:1px solid rgba(244,232,202,.28);
+    background:rgba(4,17,21,.72);color:rgba(244,232,202,.7);font-size:8px;letter-spacing:.08em;
+    border-radius:6px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    touch-action:none;cursor:pointer
+  }
+  .touch-weapon.active{
+    border-color:var(--gold);color:var(--gold);background:rgba(255,210,122,.14);
+    box-shadow:0 0 12px rgba(255,210,122,.18)
+  }
+
+  #touchFire{
+    position:absolute;right:max(18px,env(safe-area-inset-right));bottom:max(18px,env(safe-area-inset-bottom));
+    width:92px;height:92px;border-radius:50%;pointer-events:auto;touch-action:none;
+    border:1px solid rgba(255,107,81,.55);
+    background:radial-gradient(circle at 40% 35%,rgba(255,107,81,.38),rgba(60,12,8,.8));
+    color:#ffe2d2;font-family:var(--display);font-size:12px;letter-spacing:.18em;text-transform:uppercase;
+    box-shadow:0 0 26px rgba(255,80,52,.2),inset 0 0 22px rgba(0,0,0,.3);
+    cursor:pointer;transition:transform .08s,filter .08s
+  }
+  #touchFire.pressed,#touchFire:active{transform:scale(.95);filter:brightness(1.25)}
+
+  /* Touch HUD layout: keep the instruments above the thumbs and hide the desktop side panels. */
+  body.touch .hud-top{
+    top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));
+    right:max(8px,env(safe-area-inset-right));padding-right:100px
+  }
+  body.touch .center-top{display:none}
+  body.touch .score-panel{min-width:0;flex:1;max-width:min(280px,calc(100vw - 120px));padding:8px 10px}
+  body.touch #score{font-size:22px}
+  body.touch .score-row{gap:10px}
+  body.touch .sortie-strip{font-size:7px;gap:6px;margin-top:6px;padding-top:5px}
+  body.touch .right-cluster{
+    position:absolute;top:calc(72px + env(safe-area-inset-top));
+    right:max(8px,env(safe-area-inset-right));display:flex
+  }
+  body.touch .lives-panel{display:flex;min-width:0;padding:6px 8px;gap:8px}
+  body.touch .weapon-panel{display:none}
+  body.touch .life-icon{width:15px;height:10px}
+  body.touch .hud-bottom{
+    left:max(8px,env(safe-area-inset-left));right:max(8px,env(safe-area-inset-right));
+    bottom:calc(158px + env(safe-area-inset-bottom));justify-content:center
+  }
+  body.touch .radar-panel{display:none}
+  body.touch .flight-deck{width:auto;min-width:0;flex-wrap:nowrap}
+  body.touch .instrument{min-width:0;flex:0 1 auto;padding:5px 8px}
+  body.touch .instrument:nth-child(3){display:block}
+  body.touch .instrument.wide{display:none}
+  body.touch .instrument .value{font-size:17px}
+  body.touch .instrument .micro{font-size:6px}
+  body.touch .bar{height:2px;margin-top:3px}
+  body.touch #carrierTag{top:calc(110px + env(safe-area-inset-top));font-size:7px;padding:4px 9px}
+  body.touch #messages{top:35%}
+  body.touch #warning{top:44%}
+  body.touch #debug{
+    bottom:auto;top:calc(110px + env(safe-area-inset-top));left:8px;
+    max-width:46vw;font-size:8px
+  }
+
+  /* Touch menu: remove the keyboard manual and keep the start action above the fold. */
+  body.touch .menu-lower{display:none}
+  body.touch .menu-callsign{display:none}
+  body.touch .screen-inner{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+  body.touch .menu-top{
+    margin-top:max(3vh,env(safe-area-inset-top));
+    padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)
+  }
+  body.touch .menu-hero{margin-top:5vh}
+  body.touch h1{font-size:clamp(48px,13vw,116px)}
+  body.touch .menu-tag{max-width:min(430px,80vw);font-size:9px;margin-top:18px}
+  body.touch .menu-actions{margin-top:22px}
+  body.touch .start-hint{display:none}
+
+  @media (orientation:portrait){
+    body.touch .right-cluster{top:calc(92px + env(safe-area-inset-top))}
+    body.touch #carrierTag{top:calc(144px + env(safe-area-inset-top))}
+  }
+  @media (orientation:landscape){
+    body.touch .right-cluster{top:calc(58px + env(safe-area-inset-top))}
+    body.touch #carrierTag{top:calc(104px + env(safe-area-inset-top))}
+  }
+
+  @media (max-height:520px){
+    body.touch .msg-sub{display:none}
+    body.touch .menu-top{margin-top:2vh}
+    body.touch .menu-hero{margin-top:2vh}
+    body.touch .menu-tag{display:none}
+    body.touch .eyebrow{margin-bottom:8px}
+    body.touch h1{font-size:clamp(42px,10vw,86px)}
+    body.touch .menu-actions{margin-top:14px}
+    body.touch .touch-menu-hint{margin-top:8px}
+    body.touch .hud-bottom{bottom:calc(140px + env(safe-area-inset-bottom))}
+    body.touch #touchStick{width:112px;height:112px}
+    body.touch .touch-knob{width:44px;height:44px;margin:-22px 0 0 -22px}
+    body.touch #touchThrottle{height:112px;bottom:calc(150px + env(safe-area-inset-bottom))}
+    body.touch #touchWeapons{bottom:calc(112px + env(safe-area-inset-bottom))}
+    body.touch #touchFire{width:82px;height:82px}
+  }
+
+  /* Mobile performance: backdrop blur and the animated grain are expensive on phone GPUs. */
+  body.touch .panel,
+  body.touch .touch-icon,
+  body.touch .touch-weapon{
+    backdrop-filter:none;-webkit-backdrop-filter:none
+  }
+  body.touch .grain{animation:none}
+
+  @media (max-width:360px){
+    body.touch #touchStick{width:112px;height:112px}
+    body.touch .touch-knob{width:44px;height:44px;margin:-22px 0 0 -22px}
+    body.touch #touchWeapons{bottom:calc(112px + env(safe-area-inset-bottom))}
+    body.touch .touch-weapon{min-width:38px;height:32px;font-size:7px;padding:0 4px}
+    body.touch .touch-ammo{min-width:22px;font-size:12px}
+    body.touch #touchFire{width:82px;height:82px}
+    body.touch .hud-bottom{bottom:calc(140px + env(safe-area-inset-bottom))}
   }

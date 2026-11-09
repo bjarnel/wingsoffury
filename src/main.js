@@ -13,7 +13,7 @@ window.addEventListener('error', (e) => {
     const err = $('#loaderError');
     if (err) {
       err.classList.remove('hidden');
-      err.textContent = `Unable to launch the sim: ${e.message || 'script error'}. Check your connection to the Three.js CDN, then reload.`;
+      err.textContent = `Unable to launch the sim: ${e.message || 'script error'}. Check the browser console, then reload.`;
     }
   }
 });

@@ -53,7 +53,15 @@ class Game {
     this.camTarget = new THREE.Vector3();
     this.cameraInitialized = false;
     this.hudCache = {};
+    this.debugVisible = false;
+    this.debugTimer = 0;
+    this.fps = 0;
+    this.fpsAccum = 0;
+    this.fpsFrames = 0;
+    this.fpsLast = 0;
     this.mobile = isTouch;
+    document.body.classList.toggle('touch', isTouch);
+    this.touch = { stickPointer: null, throttlePointer: null, firePointer: null };
     this.mouseLocked = false;
     this.hadMouseLock = false;
     this.mouseAimHintShown = false;
@@ -75,10 +83,11 @@ class Game {
     this.bindUI();
     this.bindInput();
     this.bindMouseInput();
+    this.bindTouchInput();
     this.setupWorld();
     this.buildHeadingTape();
     this.updateCamera(0.016, true);
-    this.updateHUD(true);
+    this.updateHUD(1 / 60, true);
     this.clock = new THREE.Clock();
     this.animate = this.animate.bind(this);
     requestAnimationFrame(this.animate);
@@ -88,7 +97,10 @@ class Game {
     return {
       x: -57, y: CONFIG.deckY + 2.2, z: 0,
       dir: 1, speed: 0, vx: 0, vy: 0,
-      pitch: 0, bank: 0, visualYaw: 0, throttle: 0.55,
+      pitch: 0, bank: 0, visualYaw: 0, facingX: 1, throttle: 0.55,
+      turnActive: false, turnStartDir: 1, turnStartYaw: 0,
+      turnYaw: 0, turnAngle: 0, turnDirection: 1, turnSign: 1,
+      turnCommitted: false, turnPhase: 0, turnRate: 0,
       aimPitch: 0,
       health: 100, maxHealth: 100,
       fuel: 100, maxFuel: 100,
@@ -98,7 +110,6 @@ class Game {
       weapon: 'mg',
       gunCooldown: 0, bombCooldown: 0, rocketCooldown: 0,
       invulnerable: 0, gunSide: 1,
-      turn: { active: false, time: 0, duration: 0.95, fromDir: 1, toDir: 1, fromYaw: 0, toYaw: Math.PI },
       engineOn: true,
       alive: true,
     };
@@ -137,7 +148,7 @@ class Game {
       'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab',
       'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyP', 'KeyM', 'KeyB', 'KeyR', 'KeyC',
       'Digit1', 'Digit2', 'Digit3', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight',
-      'Escape', 'Enter',
+      'Escape', 'Enter', 'F3',
     ]);
     window.addEventListener('keydown', (e) => {
       if (gameCodes.has(e.code)) e.preventDefault();
@@ -145,6 +156,11 @@ class Game {
         this.audio.init();
         this.audio.setMuted(!this.audio.muted);
         if (this.started) this.notify(this.audio.muted ? 'AUDIO MUTED' : 'AUDIO LIVE', 'Press M to toggle', 1.2, 'cyan');
+        return;
+      }
+      if (e.code === 'F3') {
+        this.debugVisible = !this.debugVisible;
+        if (ui.debug) ui.debug.classList.toggle('hidden', !this.debugVisible);
         return;
       }
       if (!this.started) {
@@ -212,6 +228,7 @@ class Game {
   }
 
   bindMouseInput() {
+    if (isTouch) return;
     const canvas = renderer.domElement;
     canvas.addEventListener('mousedown', (e) => {
       if (e.button === 0) {
@@ -285,8 +302,164 @@ class Game {
     }
   }
 
+  bindTouchInput() {
+    if (isTouch) document.addEventListener('contextmenu', (e) => e.preventDefault());
+    const stick = ui.touchStick;
+    const knob = ui.touchKnob;
+    const throttle = ui.touchThrottle;
+    const throttleRail = ui.touchThrottleRail;
+    const fire = ui.touchFire;
+    if (!stick || !knob || !throttle || !throttleRail || !fire) return;
+
+    const setStick = (clientX, clientY) => {
+      const rect = stick.getBoundingClientRect();
+      const radius = Math.max(28, rect.width * 0.34);
+      let dx = clientX - (rect.left + rect.width / 2);
+      let dy = clientY - (rect.top + rect.height / 2);
+      const len = Math.hypot(dx, dy);
+      if (len > radius) {
+        dx = (dx / len) * radius;
+        dy = (dy / len) * radius;
+      }
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+      const nx = dx / radius;
+      const ny = dy / radius;
+      const dead = 0.18;
+      const ax = Math.abs(nx) > dead ? nx : 0;
+      const ay = Math.abs(ny) > dead ? ny : 0;
+      this.input.left = ax < -0.28;
+      this.input.right = ax > 0.28;
+      // The stick is self-centring: releasing it levels the nose again.
+      this.mouseAimTracking = true;
+      this.player.aimPitch = clamp(-ay * 0.58, -0.58, 0.58);
+    };
+    const resetStick = () => {
+      knob.style.transform = '';
+      this.input.left = false;
+      this.input.right = false;
+      if (this.player) this.player.aimPitch = 0;
+    };
+
+    stick.addEventListener('pointerdown', (e) => {
+      if (this.touch.stickPointer !== null) return;
+      this.touch.stickPointer = e.pointerId;
+      try { stick.setPointerCapture(e.pointerId); } catch { /* optional */ }
+      setStick(e.clientX, e.clientY);
+      e.preventDefault();
+    }, { passive: false });
+    stick.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== this.touch.stickPointer) return;
+      setStick(e.clientX, e.clientY);
+      e.preventDefault();
+    }, { passive: false });
+    const endStick = (e) => {
+      if (e.pointerId !== this.touch.stickPointer) return;
+      this.touch.stickPointer = null;
+      resetStick();
+    };
+    stick.addEventListener('pointerup', endStick);
+    stick.addEventListener('pointercancel', endStick);
+    stick.addEventListener('lostpointercapture', endStick);
+
+    const setThrottle = (clientY) => {
+      const rect = throttleRail.getBoundingClientRect();
+      const t = clamp(1 - (clientY - rect.top) / Math.max(1, rect.height), 0, 1);
+      this.player.throttle = clamp(0.05 + t * 0.95, 0.05, 1);
+      this.updateTouchHUD();
+    };
+    // Use the wider container as the hit target; the visual rail stays slim.
+    throttle.addEventListener('pointerdown', (e) => {
+      if (this.touch.throttlePointer !== null) return;
+      this.touch.throttlePointer = e.pointerId;
+      try { throttle.setPointerCapture(e.pointerId); } catch { /* optional */ }
+      setThrottle(e.clientY);
+      e.preventDefault();
+    }, { passive: false });
+    throttle.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== this.touch.throttlePointer) return;
+      setThrottle(e.clientY);
+      e.preventDefault();
+    }, { passive: false });
+    const endThrottle = (e) => {
+      if (e.pointerId !== this.touch.throttlePointer) return;
+      this.touch.throttlePointer = null;
+    };
+    throttle.addEventListener('pointerup', endThrottle);
+    throttle.addEventListener('pointercancel', endThrottle);
+    throttle.addEventListener('lostpointercapture', endThrottle);
+
+    fire.addEventListener('pointerdown', (e) => {
+      if (this.touch.firePointer !== null) return;
+      this.touch.firePointer = e.pointerId;
+      try { fire.setPointerCapture(e.pointerId); } catch { /* optional */ }
+      fire.classList.add('pressed');
+      this.input.fire = true;
+      this.input.firePressed = true;
+      e.preventDefault();
+    }, { passive: false });
+    const endFire = (e) => {
+      if (e.pointerId !== this.touch.firePointer) return;
+      this.touch.firePointer = null;
+      fire.classList.remove('pressed');
+      this.input.fire = false;
+    };
+    fire.addEventListener('pointerup', endFire);
+    fire.addEventListener('pointercancel', endFire);
+    fire.addEventListener('lostpointercapture', endFire);
+
+    for (const btn of ui.touchWeapons) {
+      btn.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        this.selectWeapon(btn.dataset.weapon);
+      }, { passive: false });
+    }
+
+    if (ui.touchPause) ui.touchPause.addEventListener('click', () => this.togglePause());
+    if (ui.touchMute) {
+      ui.touchMute.addEventListener('click', () => {
+        this.audio.init();
+        this.audio.setMuted(!this.audio.muted);
+        this.updateTouchHUD();
+      });
+    }
+    this.updateTouchHUD();
+  }
+
+  updateTouchHUD() {
+    if (!this.mobile || !ui.touchFire) return;
+    const p = this.player;
+    if (ui.touchThrottleFill) ui.touchThrottleFill.style.height = `${Math.round(p.throttle * 100)}%`;
+    if (ui.touchThrottleKnob) ui.touchThrottleKnob.style.bottom = `${Math.round(p.throttle * 100)}%`;
+    if (ui.touchAmmo) {
+      const ammo = p.weapon === 'mg' ? p.ammo : p.weapon === 'bomb' ? p.bombs : p.rockets;
+      ui.touchAmmo.textContent = String(ammo).padStart(3, '0');
+    }
+    for (const slot of ui.touchWeapons) {
+      slot.classList.toggle('active', slot.dataset.weapon === p.weapon);
+    }
+    if (ui.touchMute) {
+      ui.touchMute.classList.toggle('muted', this.audio.muted);
+      ui.touchMute.textContent = this.audio.muted ? 'M' : '♪';
+    }
+    if (ui.touchFire) {
+      const label = p.weapon === 'bomb' ? 'BOMB' : p.weapon === 'rocket' ? 'RKT' : 'FIRE';
+      if (ui.touchFire.textContent !== label) ui.touchFire.textContent = label;
+    }
+  }
+
+  resetTouchControls() {
+    if (!this.touch) return;
+    this.touch.stickPointer = null;
+    this.touch.throttlePointer = null;
+    this.touch.firePointer = null;
+    if (ui.touchKnob) ui.touchKnob.style.transform = '';
+    if (ui.touchFire) ui.touchFire.classList.remove('pressed');
+  }
+
   clearInput() {
     Object.keys(this.input).forEach(k => { this.input[k] = false; });
+    if (this.mobile && this.player) this.player.aimPitch = 0;
+    this.resetTouchControls();
   }
 
   buildHeadingTape() {
@@ -302,13 +475,14 @@ class Game {
     const w = window.innerWidth, h = window.innerHeight;
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    const DPR_CAP = isTouch ? 1.35 : 1.85;
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
+    const DPR_CAP = isTouch ? 1.25 : 1.85;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     renderer.setSize(w, h);
     const vh = Math.min(h * renderer.getPixelRatio(), 2400);
     particles.smokeLayer.material.uniforms.uViewportH.value = vh;
     particles.fireLayer.material.uniforms.uViewportH.value = vh;
     this.cameraInitialized = false;
+    this.resetTouchControls();
   }
 
   beginMission() {
@@ -357,10 +531,10 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     ui.menu.classList.add('hidden');
     ui.gameover.classList.add('hidden');
     ui.pause.classList.add('hidden');
-    world.ensureAround(this.player.x, 1, true);
+    world.ensureAround(this.player.x, 1);
     this.updateLivesIcons();
-    this.updateHUD(true);
-    this.notify('USS WASP · VF-13', 'Hellcat ready. Launching momentarily.', 3.0, 'gold');
+    this.updateHUD(1 / 60, true);
+    this.notify('USS WASP · VF-18', 'Hellcat ready. Launching momentarily.', 3.0, 'gold');
     this.audio.updateEngine(0, 0.25, true, false);
     this.requestMouseAim();
   }
@@ -387,6 +561,17 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
   animate() {
     requestAnimationFrame(this.animate);
     const dt = Math.min(this.clock.getDelta(), 1 / 20);
+    const now = performance.now();
+    if (this.fpsLast) {
+      this.fpsAccum += now - this.fpsLast;
+      this.fpsFrames++;
+      if (this.fpsAccum >= 500) {
+        this.fps = (this.fpsFrames * 1000) / this.fpsAccum;
+        this.fpsAccum = 0;
+        this.fpsFrames = 0;
+      }
+    }
+    this.fpsLast = now;
     this.update(dt);
     renderer.render(scene, camera);
   }
@@ -402,6 +587,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
       this.updateSun();
       this.updateCarrierLights(dt);
       this.animateMenuAfterburner(dt);
+      this.updateDebug(dt);
       this.input.firePressed = false;
       return;
     }
@@ -441,9 +627,10 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     this.updateCamera(dt);
     this.updateCarrierLights(dt);
     this.updateEngineAudio(dt);
-    this.updateHUD();
+    this.updateHUD(dt);
     this.updateReticle();
     this.updateSun();
+    this.updateDebug(dt);
     if (this.mode === 'flying' || this.mode === 'takeoff') {
       if (this.input.firePressed) this.handleFirePressed();
     }
@@ -457,7 +644,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
   }
 
   updateWorldStreaming(dt) {
-    world.update(dt, this.player.x, this.player.dir);
+    const facing = Math.sign(this.player.facingX ?? this.player.dir) || this.player.dir;
+    world.update(dt, this.player.x, facing);
     // Remove death projectiles left behind by a landing or crash.
     if (this.mode !== 'flying') {
       for (let i = combat.bullets.length - 1; i >= 0; i--) {
@@ -504,6 +692,10 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     this.takeoffAirTime = 0;
     p.dir = 1;
     p.visualYaw = 0;
+    p.facingX = 1;
+    p.turnActive = false;
+    p.turnPhase = 0;
+    p.turnYaw = 0;
     p.aimPitch = 0;
     this.mouseAimTracking = false;
     p.speed = Math.max(p.speed, 18);
@@ -526,6 +718,9 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     p.pitch = damp(p.pitch, 0, 6, dt);
     p.bank = 0;
     p.visualYaw = 0;
+    p.facingX = 1;
+    p.turnActive = false;
+    p.turnPhase = 0;
     p.y = CONFIG.deckY + 2.2;
     p.invulnerable = Math.max(p.invulnerable, 1);
     if (this.readyGuard <= 0) {
@@ -554,6 +749,9 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     p.dir = 1;
     p.vx = p.speed;
     p.visualYaw = 0;
+    p.facingX = 1;
+    p.turnActive = false;
+    p.turnPhase = 0;
     p.bank = 0;
     if (this.exhaustTimer <= 0 && p.speed > 20) {
       particles.dust({ x: p.x - 2.4, y: CONFIG.deckY + 0.9, z: 0 }, 1.5, 2);
@@ -571,22 +769,102 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
       this.notify('AIRBORNE', 'Sweep the island chain', 1.8, 'cyan');
       if (!this.mouseAimHintShown) {
         this.mouseAimHintShown = true;
-        this.notify('MOUSE AIM', 'Move up / down to pitch · click to capture · C centres', 3.4, 'gold');
+        if (this.mobile) {
+          this.notify('TOUCH CONTROL', 'Left stick: pitch & turn · right thumb: throttle, weapons, fire', 3.6, 'gold');
+        } else {
+          this.notify('MOUSE AIM', 'Move up / down to pitch · click to capture · C centres', 3.4, 'gold');
+        }
       }
       this.audio.chime(true);
     }
   }
 
-  startTurn(toDir) {
+  beginTurn(toDir) {
     const p = this.player;
-    p.turn.active = true;
-    p.turn.time = 0;
-    p.turn.duration = clamp(1.12 - p.speed / 300, 0.78, 1.05);
-    p.turn.fromDir = p.dir;
-    p.turn.toDir = toDir;
-    p.turn.fromYaw = p.visualYaw;
-    p.turn.toYaw = p.visualYaw + Math.PI;
-    this.audio.noiseBurst(0.35, 0.07, 'bandpass', 420, this.audio.master, clamp((p.x - this.player.x) / 400, -1, 1));
+    if (p.turnActive || p.speed <= 18 || toDir === p.dir) return;
+    p.turnActive = true;
+    p.turnStartDir = p.dir;
+    p.turnStartYaw = p.visualYaw;
+    p.turnYaw = p.visualYaw;
+    p.turnAngle = 0;
+    p.turnDirection = toDir;
+    p.turnSign = toDir;
+    p.turnCommitted = false;
+    p.turnPhase = 0;
+    p.turnRate = 0;
+    this.audio.noiseBurst(0.35, 0.07, 'bandpass', 420, this.audio.master);
+  }
+
+  updateTurn(dt, desiredDir) {
+    const p = this.player;
+    if (!p.turnActive) {
+      if (desiredDir !== 0 && desiredDir !== p.dir && p.speed > 18) this.beginTurn(desiredDir);
+      p.turnPhase = 0;
+      p.turnAngle = 0;
+      p.turnCommitted = false;
+      p.visualYaw = p.dir === 1 ? 0 : Math.PI;
+      const bankInput = desiredDir !== 0 && desiredDir === p.dir ? -desiredDir * 0.2 : 0;
+      p.bank = damp(p.bank, bankInput, 3.4, dt);
+      return 0;
+    }
+
+    // A/D command a bank. The bank angle produces a turn rate, so the
+    // reversal is continuous and can be tightened, reversed, or rolled out.
+    const sign = p.turnSign;
+    let rotation = p.turnDirection;
+    if (desiredDir !== 0) {
+      rotation = desiredDir;
+      // Past 90 degrees the turn is committed: releasing the stick completes
+      // the reversal instead of leaving the aircraft edge-on to the camera.
+      p.turnCommitted = desiredDir === sign && p.turnPhase >= Math.PI / 2;
+    } else {
+      // Before the commit point, release rolls back toward the original
+      // heading. After it, release completes the reversal. The committed flag
+      // prevents the turn from oscillating around the 90 degree mark.
+      rotation = p.turnCommitted ? sign : -sign;
+    }
+    p.turnDirection = rotation;
+
+    const stalled = p.speed < CONFIG.stallSpeed;
+    const speedFactor = clamp(p.speed / CONFIG.maxSpeed, 0.18, 1);
+    const bankFactor = clamp(0.4 + 0.6 * Math.abs(p.bank) / 1.02, 0.4, 1);
+    const turnRate = (stalled ? 0.9 : 2.35) * (0.55 + 0.45 * speedFactor) * bankFactor;
+    p.turnRate = turnRate;
+    p.turnAngle += rotation * turnRate * dt;
+    p.turnPhase = Math.abs(p.turnAngle);
+    p.turnYaw = p.turnStartYaw + p.turnAngle;
+    p.visualYaw = p.turnYaw;
+    p.bank = damp(p.bank, -rotation * 1.02, 5.5, dt);
+    if (p.engineOn) p.speed -= 2.8 * dt * (0.4 + Math.abs(p.bank) / 1.02);
+    const turnAltitudeLoss = Math.sin(clamp(p.turnPhase, 0, Math.PI)) * 9;
+    const progress = p.turnAngle * sign;
+
+    if (progress >= Math.PI) {
+      p.dir = p.turnStartDir === 1 ? -1 : 1;
+      p.turnActive = false;
+      p.turnPhase = 0;
+      p.turnRate = 0;
+      p.turnAngle = 0;
+      p.turnYaw = p.dir === 1 ? 0 : Math.PI;
+      p.visualYaw = p.turnYaw;
+      p.turnStartDir = p.dir;
+      p.turnStartYaw = p.visualYaw;
+      p.turnDirection = p.dir;
+      p.turnSign = p.dir;
+      p.turnCommitted = false;
+      p.speed *= 0.9;
+    } else if (progress <= 0) {
+      p.turnActive = false;
+      p.turnPhase = 0;
+      p.turnRate = 0;
+      p.turnAngle = 0;
+      p.turnYaw = p.turnStartYaw;
+      p.visualYaw = p.turnStartYaw;
+      p.turnDirection = p.dir;
+      p.turnSign = p.dir;
+      p.turnCommitted = false;
+    }
+    return turnAltitudeLoss;
   }
 
   updateFlying(dt) {
@@ -604,9 +882,6 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     p.fuel = Math.max(0, p.fuel - dt * (0.26 + p.throttle * 0.48));
 
     const desiredDir = (this.input.left ? -1 : 0) + (this.input.right ? 1 : 0);
-    if (!p.turn.active && desiredDir !== 0 && desiredDir !== p.dir && p.speed > 18) {
-      this.startTurn(desiredDir);
-    }
 
     let targetSpeed = 28 + p.throttle * 82;
     if (!p.engineOn) targetSpeed = 18;
@@ -615,7 +890,6 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     p.speed += clamp(diff, -rate * dt, rate * dt);
     if (!p.engineOn) p.speed -= 4.5 * dt;
     p.speed -= Math.sin(p.pitch) * 17 * dt;
-    if (p.turn.active && p.engineOn) p.speed -= 6 * dt;
     p.speed = clamp(p.speed, 0, CONFIG.maxSpeed);
 
     const pitchInput = (this.input.up ? 1 : 0) - (this.input.down ? 1 : 0);
@@ -630,30 +904,12 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     }
     p.pitch = damp(p.pitch, pitchTarget, stalled ? 1.5 : 3.0, dt);
 
-    let turnAltitudeLoss = 0;
-    let horizontalFactor = 1;
-    if (p.turn.active) {
-      const t = p.turn;
-      t.time += dt;
-      const k = clamp(t.time / t.duration, 0, 1);
-      const smooth = k * k * (3 - 2 * k);
-      horizontalFactor = Math.cos(smooth * Math.PI);
-      p.visualYaw = t.fromYaw + Math.PI * smooth;
-      turnAltitudeLoss = Math.sin(smooth * Math.PI) * 8;
-      p.bank = damp(p.bank, -t.toDir * 0.92, 5, dt);
-      if (k >= 1) {
-        p.dir = t.toDir;
-        p.turn.active = false;
-        p.speed *= 0.86;
-        p.visualYaw = p.dir === 1 ? 0 : Math.PI;
-      }
-    } else {
-      p.visualYaw = p.dir === 1 ? 0 : Math.PI;
-      const bankInput = desiredDir !== 0 && desiredDir === p.dir ? -desiredDir * 0.2 : 0;
-      p.bank = damp(p.bank, bankInput, 3.4, dt);
-    }
+    const turnAltitudeLoss = this.updateTurn(dt, desiredDir);
+    p.speed = clamp(p.speed, 0, CONFIG.maxSpeed);
 
-    p.vx = p.dir * p.speed * horizontalFactor;
+    const turnPhase = clamp(p.turnPhase, 0, Math.PI);
+    p.facingX = p.dir * Math.cos(turnPhase);
+    p.vx = p.dir * p.speed * Math.cos(turnPhase);
     const sink = Math.max(0, 43 - p.speed) * 1.35;
     let targetVy = Math.sin(p.pitch) * p.speed * 0.9 - sink - turnAltitudeLoss;
     if (!p.engineOn) targetVy -= 6;
@@ -690,7 +946,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     const carrierMax = CONFIG.carrierX + 80;
     const overCarrier = p.x > carrierMin && p.x < carrierMax && Math.abs(p.z) < 15;
     if (overCarrier && p.y < CONFIG.deckY + 5.5 && p.y > 4) {
-      if (p.speed < 95 && Math.abs(p.pitch) < 0.28 && Math.abs(p.vy) < 21 && this.mode === 'flying') {
+      if (p.speed < 95 && Math.abs(p.pitch) < 0.28 && Math.abs(p.vy) < 21
+        && !p.turnActive && Math.abs(p.bank) < 0.32 && this.mode === 'flying') {
         this.beginLanding();
         return;
       }
@@ -728,7 +985,12 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     p.vy = 0;
     p.pitch = damp(p.pitch, 0, 8, 0.1);
     p.bank = 0;
-    p.turn.active = false;
+    p.turnActive = false;
+    p.turnPhase = 0;
+    p.turnRate = 0;
+    p.turnYaw = p.dir === 1 ? 0 : Math.PI;
+    p.visualYaw = p.turnYaw;
+    p.facingX = p.dir;
     p.y = CONFIG.deckY + 2.2;
     p.x = clamp(p.x, CONFIG.carrierX - 60, CONFIG.carrierX + 55);
     p.invulnerable = 999;
@@ -778,6 +1040,11 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
       p.weapon = 'mg';
       p.dir = 1;
       p.visualYaw = 0;
+      p.facingX = 1;
+      p.turnActive = false;
+      p.turnPhase = 0;
+      p.turnRate = 0;
+      p.turnYaw = 0;
       p.speed = 0;
       p.bank = 0;
       p.pitch = 0;
@@ -815,7 +1082,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     this.crashReason = reason;
     this.lives--;
     this.updateLivesIcons();
-    const water = reason === 'water';
+    const water = reason === 'water' || (reason === 'collision' && world.heightAt(p.x, p.z) <= 0.15);
     const crashPos = new THREE.Vector3(p.x, Math.max(p.y, water ? 1.0 : world.heightAt(p.x, p.z)), p.z);
     if (water) {
       particles.explosion(crashPos, 2.2, true);
@@ -877,7 +1144,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     if (this.mode === 'flying') {
       // Urgent voice cues are rate-limited through the audio engine as well.
       if (this.warningTimer <= 0) {
-        const groundAhead = world.heightAt(p.x + p.dir * 56, p.z);
+        const groundAhead = world.heightAt(p.x + p.facingX * 56, p.z);
         if (p.speed < CONFIG.stallSpeed) {
           this.audio.warning();
           this.warningTimer = 1.5;
@@ -908,34 +1175,38 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
       const nearDeck = Math.abs(p.x - CONFIG.carrierX) < 110 && p.y < 45;
       u.gear.visible = ['ready', 'takeoff', 'landing', 'rearming'].includes(this.mode) || (this.mode === 'flying' && nearDeck && p.speed < 58);
       if (this.mode === 'flying') {
+        const yaw = p.visualYaw;
+        const backX = p.x - Math.cos(yaw) * 5.1;
+        const backZ = p.z + Math.sin(yaw) * 5.1;
         if (this.exhaustTimer <= 0) {
-          const backX = p.x - p.dir * 5.1;
           const damaged = p.health < 55;
-          particles.smoke(backX, p.y - 0.15, p.z, damaged ? 2 : 1, {
+          particles.smoke(backX, p.y - 0.15, backZ, damaged ? 2 : 1, {
             color: damaged ? 0x272b28 : 0x9a9b8c,
             size: damaged ? 1.6 : 0.75,
             spread: 0.25,
             speed: 0.5,
-            vx: -p.dir * rand(2, 4),
+            vx: -Math.cos(yaw) * rand(2, 4),
             vy: 0.2,
             life: damaged ? 2.1 : 0.9,
             alpha: damaged ? 0.35 : 0.13,
             growth: damaged ? 3.2 : 1.5,
           });
-          if (!damaged) particles.fire(backX - p.dir * 0.25, p.y - 0.12, p.z, 1, {
-            size: 0.28 + p.throttle * 0.3, life: 0.08, vx: -p.dir * 5, vy: 0.2,
+          if (!damaged) particles.fire(backX - Math.cos(yaw) * 0.25, p.y - 0.12, backZ + Math.sin(yaw) * 0.25, 1, {
+            size: 0.28 + p.throttle * 0.3, life: 0.08, vx: -Math.cos(yaw) * 5, vy: 0.2,
           });
           this.exhaustTimer = damaged ? 0.11 : 0.085;
         }
         if (p.health < 55 && this.enemySmokeTimer <= 0) {
-          particles.smoke(p.x - p.dir * 2.6, p.y + 0.1, p.z, 1, {
+          particles.smoke(p.x - Math.cos(yaw) * 2.6, p.y + 0.1, p.z + Math.sin(yaw) * 2.6, 1, {
             color: 0x222824, size: 2.0, spread: 0.35, speed: 0.9,
-            vx: -p.dir * rand(1, 3), vy: 1.2, life: 2.0, alpha: 0.3, growth: 3.5,
+            vx: -Math.cos(yaw) * rand(1, 3), vy: 1.2, life: 2.0, alpha: 0.3, growth: 3.5,
           });
           this.enemySmokeTimer = 0.35;
         }
         if (Math.abs(p.bank) > 0.48 && p.speed > 56 && Math.random() < dt * 10) {
-          particles.smoke(p.x - p.dir * 0.6, p.y + 0.05, 4.6, 1, {
+          const wx = p.x - Math.cos(p.visualYaw) * 0.6 + Math.sin(p.visualYaw) * 4.6;
+          const wz = p.z + Math.sin(p.visualYaw) * 0.6 + Math.cos(p.visualYaw) * 4.6;
+          particles.smoke(wx, p.y + 0.05, wz, 1, {
             color: 0xe7e2cf, size: 0.55, spread: 0.1, speed: 0.3,
             life: 0.5, alpha: 0.17, growth: 1.2,
           });
@@ -971,8 +1242,9 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
       target.set(p.x, Math.max(0, p.y - 2), 0);
     } else {
       const speedLook = clamp(p.vx * 0.13, -18, 18);
-      desired.set(p.x - p.dir * 4 + clamp(p.vx * 0.04, -7, 7), p.y + 19, CONFIG.cameraZ);
-      target.set(p.x + p.dir * 36 + speedLook, p.y - 7, 0);
+      const facingX = p.facingX ?? p.dir;
+      desired.set(p.x - facingX * 4 + clamp(p.vx * 0.04, -7, 7), p.y + 19, CONFIG.cameraZ);
+      target.set(p.x + facingX * 36 + speedLook, p.y - 7, 0);
     }
     const snapNow = snap || !this.cameraInitialized;
     if (snapNow) {
@@ -985,7 +1257,11 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
       camera.position.lerp(desired, posK);
       this.camLook.lerp(target, lookK);
     }
-    const fovTarget = CONFIG.baseFov + (this.mode === 'flying' ? clamp(p.speed / 140, 0, 0.9) * 5 : 0);
+    // Portrait phones have a very narrow horizontal field of view; widen the
+    // vertical FOV so the side-scrolling lane stays readable.
+    const portraitBoost = camera.aspect < 1 ? (1 - camera.aspect) * 26 : 0;
+    const fovTarget = CONFIG.baseFov + portraitBoost
+      + (this.mode === 'flying' ? clamp(p.speed / 140, 0, 0.9) * 5 : 0);
     camera.fov = damp(camera.fov, fovTarget, 2, dt);
     camera.updateProjectionMatrix();
     if (this.shakeAmount > 0.005) {
@@ -1012,8 +1288,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     sun.updateMatrixWorld();
   }
 
-  updateHUD(force = false) {
-    this.hudTimer -= 1 / 60;
+  updateHUD(dt = 1 / 60, force = false) {
+    this.hudTimer -= dt;
     if (!force && this.hudTimer > 0) return;
     this.hudTimer = 0.095;
     if (!this.started || this.mode === 'menu') return;
@@ -1036,10 +1312,11 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     setText(ui.throttle, String(Math.round(p.throttle * 100)));
     setText(ui.throttleState, p.throttle < 0.28 ? 'IDLE' : p.throttle < 0.72 ? 'CRUISE' : p.throttle < 0.92 ? 'CLIMB' : 'FULL');
     this.updateWeaponHUD();
+    this.updateTouchHUD();
     this.updateLivesIcons();
 
     if (this.mode === 'flying') {
-      const gh = world.heightAt(p.x + p.dir * 46, p.z);
+      const gh = world.heightAt(p.x + p.facingX * 46, p.z);
       let warn = '';
       if (p.speed < CONFIG.stallSpeed) warn = 'STALL · NOSE DOWN';
       else if (p.fuel < 16) warn = 'FUEL CRITICAL';
@@ -1065,7 +1342,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
       objective = 'Recovering aircraft · <em>repair and rearm</em>';
     } else if (this.mode === 'flying') {
       const nearCarrier = Math.abs(p.x - CONFIG.carrierX) < 210 && p.y < 55;
-      if (nearCarrier && (p.dir < 0 || p.fuel < 30 || p.ammo < 120)) {
+      if (nearCarrier && (p.facingX < -0.25 || p.fuel < 30 || p.ammo < 120)) {
         objective = 'Carrier approach · <em>below 90 knots, wings level</em>';
       } else if (p.fuel < 22 || p.ammo < 90 || (p.bombs <= 0 && p.rockets <= 0)) {
         objective = 'Low supplies · <em>return to Wasp</em>';
@@ -1086,7 +1363,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
       ui.carrierTag.classList.add('visible');
       const arrowEl = ui.carrierTag.querySelector('.carrier-arrow');
       if (arrowEl) arrowEl.textContent = arrow;
-      setText(ui.carrierText, `CV-13 WASP · ${(Math.abs(dx) * 0.0015).toFixed(1)} KM ${arrow === '◀' ? 'WEST' : 'EAST'}`);
+      setText(ui.carrierText, `CV-18 WASP · ${(Math.abs(dx) * 0.0015).toFixed(1)} KM ${arrow === '◀' ? 'WEST' : 'EAST'}`);
     } else {
       ui.carrierTag.classList.remove('visible');
     }
@@ -1095,7 +1372,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
       this.radarTimer = 0.14;
       this.updateRadar();
     }
-    this.radarTimer -= 0.095;
+    this.radarTimer -= dt;
     const headingOffset = ((-p.x * 0.12) % 31 + 31) % 31;
     ui.headingTicks.style.transform = `translateX(-${headingOffset}px)`;
     this.updateTacticalStatus();
@@ -1138,13 +1415,14 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     }
     ui.reticle.style.display = '';
     const p = this.player;
-    const target = _v3.set(p.x + p.dir * Math.cos(p.pitch) * 65, p.y + Math.sin(p.pitch) * 65, 0);
+    const facingX = p.facingX ?? p.dir;
+    const target = _v3.set(p.x + facingX * Math.cos(p.pitch) * 65, p.y + Math.sin(p.pitch) * 65, 0);
     camera.updateMatrixWorld();
     target.project(camera);
     if (target.z < -1 || target.z > 1 || Math.abs(target.x) > 1.1 || Math.abs(target.y) > 1.1) {
       ui.reticle.style.opacity = '0';
     } else {
-      ui.reticle.style.opacity = '0.8';
+      ui.reticle.style.opacity = Math.abs(facingX) < 0.18 ? '0.28' : '0.8';
       ui.reticle.style.left = `${(target.x * 0.5 + 0.5) * window.innerWidth}px`;
       ui.reticle.style.top = `${(-target.y * 0.5 + 0.5) * window.innerHeight}px`;
     }
@@ -1168,6 +1446,34 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     } else {
       ui.bombSight.classList.remove('visible');
     }
+  }
+
+  updateDebug(dt) {
+    if (!ui.debug) return;
+    this.debugTimer -= dt;
+    if (!this.debugVisible) {
+      ui.debug.classList.add('hidden');
+      return;
+    }
+    ui.debug.classList.remove('hidden');
+    if (this.debugTimer > 0) return;
+    this.debugTimer = 0.2;
+    const p = this.player;
+    const turn = p.turnActive ? `${(p.turnPhase * 180 / Math.PI).toFixed(0)}°` : '-';
+    ui.debug.textContent = [
+      `FPS ${this.fps.toFixed(0)}`,
+      `MODE ${this.mode}`,
+      `SPD ${p.speed.toFixed(1)}`,
+      `ALT ${p.y.toFixed(1)}`,
+      `DIR ${p.dir}`,
+      `TURN ${turn}`,
+      `BANK ${p.bank.toFixed(2)}`,
+      `HP ${p.health.toFixed(0)}`,
+      `UNITS ${combat.units.length}`,
+      `BANDITS ${combat.fighters.length}`,
+      `BULLETS ${combat.bullets.length}`,
+      `CHUNKS ${world.chunks.size}`,
+    ].join('  ·  ');
   }
 
   showGameOver() {
@@ -1268,6 +1574,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     if (!['mg', 'bomb', 'rocket'].includes(weapon)) return;
     this.player.weapon = weapon;
     this.updateWeaponHUD(true);
+    this.updateTouchHUD();
     this.updateReticle();
   }
 
@@ -1379,7 +1686,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     const py = baseline - 8;
     ctx.save();
     ctx.translate(cx, py);
-    ctx.scale(this.player.dir < 0 ? -1 : 1, 1);
+    ctx.scale((this.player.facingX ?? this.player.dir) < 0 ? -1 : 1, 1);
     ctx.fillStyle = '#ffd27a';
     ctx.beginPath();
     ctx.moveTo(7, 0); ctx.lineTo(-5, -5); ctx.lineTo(-2, 0); ctx.lineTo(-5, 5); ctx.closePath();

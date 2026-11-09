@@ -13,14 +13,14 @@ const renderer = new THREE.WebGLRenderer({
   alpha: false,
   stencil: false,
 });
-const DPR_CAP = isTouch ? 1.35 : 1.85;
+const DPR_CAP = isTouch ? 1.25 : 1.85;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.04;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = isTouch ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
 const FOG_COLOR = new THREE.Color(0xd49a7e);
@@ -36,7 +36,8 @@ fill.position.set(-30, 90, 220);
 scene.add(fill);
 const sun = new THREE.DirectionalLight(0xffc18b, 3.4);
 sun.castShadow = true;
-sun.shadow.mapSize.set(1536, 1536);
+const shadowSize = isTouch ? 1024 : 1536;
+sun.shadow.mapSize.set(shadowSize, shadowSize);
 sun.shadow.camera.near = 5;
 sun.shadow.camera.far = 370;
 sun.shadow.camera.left = -125;
@@ -45,7 +46,7 @@ sun.shadow.camera.top = 105;
 sun.shadow.camera.bottom = -105;
 sun.shadow.bias = -0.00035;
 sun.shadow.normalBias = 0.035;
-sun.shadow.radius = 2;
+sun.shadow.radius = isTouch ? 1 : 2;
 scene.add(sun);
 scene.add(sun.target);
 const rim = new THREE.DirectionalLight(0x4f8fae, 0.55);
