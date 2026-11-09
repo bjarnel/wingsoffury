@@ -14,6 +14,12 @@
   npm run preview   # serve the production build
 -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%2307151c'/%3E%3Cpath d='M8 34h30l18-11-6 13 6 7-18-3H8z' fill='%23ffd27a'/%3E%3C/svg%3E" />
+<link rel="manifest" href="./manifest.webmanifest" />
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Wings of Fury" />
+<meta name="mobile-web-app-capable" content="yes" />
 <title>Wings of Fury — Pacific Strike</title>
 <link rel="stylesheet" href="/src/styles.css" />
 </head>
@@ -79,10 +85,23 @@
 
     <div id="carrierTag"><span class="carrier-arrow">◀</span> <span id="carrierText">CV-18 WASP · 1.8 KM</span></div>
 
+    <div id="approach">
+      <span class="approach-label">LSO</span>
+      <div class="approach-rail"><span class="approach-center"></span><span id="approachBall" class="approach-ball"></span></div>
+      <span class="approach-stack">
+        <b id="approachCall">CALL THE BALL</b>
+        <small id="approachInfo">1.0 KM · 90 KTS</small>
+      </span>
+    </div>
+
     <div id="reticle">
       <span class="ret-h l"></span><span class="ret-h r"></span><span class="ret-dot"></span>
     </div>
     <div id="bombSight"></div>
+    <div id="targetMarker">
+      <span class="target-diamond"></span>
+      <span id="targetLabel" class="target-label">TARGET · 1.2 KM</span>
+    </div>
     <div id="messages"></div>
     <div id="warning">Stall</div>
     <div id="debug" class="hidden"></div>

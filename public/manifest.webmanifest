@@ -1,0 +1,26 @@
+{
+  "name": "Wings of Fury — Pacific Strike",
+  "short_name": "Wings of Fury",
+  "description": "A procedural WWII carrier air-combat arcade game.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#07151c",
+  "theme_color": "#07151c",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

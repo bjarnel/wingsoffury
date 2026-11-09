@@ -101,6 +101,7 @@ function createFighterModel(palette, isPlayer = false) {
 
 const playerPalette = { body: 0x416b8a, wing: 0x315575, accent: 0xffcf73, dark: 0x1a2d36, glass: 0x78cbd2 };
 const enemyPalette = { body: 0x5a6048, wing: 0x48503c, accent: 0xc25b45, dark: 0x232b25, glass: 0x7ca29a };
+const acePalette = { body: 0x6d4d38, wing: 0x513b2d, accent: 0xe04b35, dark: 0x2a211c, glass: 0x9ac9c0 };
 
 function createPlayerAircraft() {
   const root = createFighterModel(playerPalette, true);
@@ -112,4 +113,4 @@ function createPlayerAircraft() {
 
 const playerModel = createPlayerAircraft();
 
-export { createFighterModel, playerPalette, enemyPalette, createPlayerAircraft, playerModel };
+export { createFighterModel, playerPalette, enemyPalette, acePalette, createPlayerAircraft, playerModel };

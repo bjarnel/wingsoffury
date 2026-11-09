@@ -5,6 +5,10 @@ import {
 } from '../core/utils.js';
 import { AudioEngine } from '../audio/AudioEngine.js';
 import { renderer, scene, camera, sun, sunDirection } from '../render/scene.js';
+import { QualityManager } from '../render/QualityManager.js';
+import { DamageModel } from './DamageModel.js';
+import { ApproachGuidance } from './ApproachGuidance.js';
+import { MissionDirector } from './MissionDirector.js';
 import { sky } from '../render/sky.js';
 import { ocean } from '../render/ocean.js';
 import { clouds } from '../render/clouds.js';
@@ -59,7 +63,11 @@ class Game {
     this.fpsAccum = 0;
     this.fpsFrames = 0;
     this.fpsLast = 0;
+    this.targetMarkerPos = { x: 0, y: 0 };
+    this.targetMarkerTarget = null;
+    this.targetMarkerOffscreen = false;
     this.mobile = isTouch;
+    this.dprCap = isTouch ? 1.25 : 1.85;
     document.body.classList.toggle('touch', isTouch);
     this.touch = { stickPointer: null, throttlePointer: null, firePointer: null };
     this.mouseLocked = false;
@@ -69,7 +77,11 @@ class Game {
     this.mouseSensitivity = 0.00155;
     this.suppressEscapePauseUntil = 0;
     this.player = this.makePlayerState();
+    this.damage = new DamageModel(this);
+    this.approach = new ApproachGuidance(this);
+    this.ui = ui;
     this.combat = combat;
+    this.missions = new MissionDirector(this);
     this.particles = particles;
     this.world = world;
     this.renderer = renderer;
@@ -86,6 +98,7 @@ class Game {
     this.bindTouchInput();
     this.setupWorld();
     this.buildHeadingTape();
+    this.quality = new QualityManager(this);
     this.updateCamera(0.016, true);
     this.updateHUD(1 / 60, true);
     this.clock = new THREE.Clock();
@@ -449,9 +462,17 @@ class Game {
 
   resetTouchControls() {
     if (!this.touch) return;
+    const hadStick = this.touch.stickPointer !== null;
+    const hadFire = this.touch.firePointer !== null;
     this.touch.stickPointer = null;
     this.touch.throttlePointer = null;
     this.touch.firePointer = null;
+    if (hadStick) {
+      this.input.left = false;
+      this.input.right = false;
+      if (this.player) this.player.aimPitch = 0;
+    }
+    if (hadFire) this.input.fire = false;
     if (ui.touchKnob) ui.touchKnob.style.transform = '';
     if (ui.touchFire) ui.touchFire.classList.remove('pressed');
   }
@@ -471,18 +492,20 @@ class Game {
     }
   }
 
-  onResize() {
+  onResize(resetControls = true) {
     const w = window.innerWidth, h = window.innerHeight;
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    const DPR_CAP = isTouch ? 1.25 : 1.85;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
+    const dprCap = this.dprCap ?? (isTouch ? 1.25 : 1.85);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap));
     renderer.setSize(w, h);
     const vh = Math.min(h * renderer.getPixelRatio(), 2400);
     particles.smokeLayer.material.uniforms.uViewportH.value = vh;
     particles.fireLayer.material.uniforms.uViewportH.value = vh;
-    this.cameraInitialized = false;
-    this.resetTouchControls();
+    if (resetControls) {
+      this.cameraInitialized = false;
+      this.resetTouchControls();
+    }
   }
 
   beginMission() {
@@ -504,6 +527,9 @@ class Game {
     this.shakeAmount = 0;
     this.best = loadBest();
     this.player = this.makePlayerState();
+    this.damage.reset();
+    this.approach.reset();
+    this.missions.reset();
     this.mouseAimTracking = false;
     this.playerModel.visible = true;
     this.playerModel.position.set(this.player.x, this.player.y, this.player.z);
@@ -535,6 +561,7 @@ class Game {
     this.updateLivesIcons();
     this.updateHUD(1 / 60, true);
     this.notify('USS WASP · VF-18', 'Hellcat ready. Launching momentarily.', 3.0, 'gold');
+    this.notify('MISSION 01', this.missions.mission.title, 2.8, 'cyan');
     this.audio.updateEngine(0, 0.25, true, false);
     this.requestMouseAim();
   }
@@ -572,6 +599,7 @@ class Game {
       }
     }
     this.fpsLast = now;
+    this.quality?.update(dt, this.fps);
     this.update(dt);
     renderer.render(scene, camera);
   }
@@ -620,11 +648,16 @@ class Game {
     }
 
     this.updateWorldStreaming(dt);
-    if (this.mode === 'flying') combat.update(dt);
+    if (this.mode === 'flying') {
+      combat.update(dt);
+      this.missions.update(dt);
+    }
     this.updatePlayerSystems(dt);
+    this.approach.update(dt);
     this.updatePlayerVisual(dt);
     this.particles.update(dt);
     this.updateCamera(dt);
+    this.updateTargetMarker(dt);
     this.updateCarrierLights(dt);
     this.updateEngineAudio(dt);
     this.updateHUD(dt);
@@ -828,7 +861,8 @@ class Game {
     const stalled = p.speed < CONFIG.stallSpeed;
     const speedFactor = clamp(p.speed / CONFIG.maxSpeed, 0.18, 1);
     const bankFactor = clamp(0.4 + 0.6 * Math.abs(p.bank) / 1.02, 0.4, 1);
-    const turnRate = (stalled ? 0.9 : 2.35) * (0.55 + 0.45 * speedFactor) * bankFactor;
+    const turnRate = (stalled ? 0.9 : 2.35) * (0.55 + 0.45 * speedFactor) * bankFactor
+      * (this.damage?.controlFactor ?? 1);
     p.turnRate = turnRate;
     p.turnAngle += rotation * turnRate * dt;
     p.turnPhase = Math.abs(p.turnAngle);
@@ -879,18 +913,19 @@ class Game {
     p.throttle = clamp(p.throttle, 0.05, 1);
     if (p.fuel <= 0) p.engineOn = false;
     else p.engineOn = true;
-    p.fuel = Math.max(0, p.fuel - dt * (0.26 + p.throttle * 0.48));
+    p.fuel = Math.max(0, p.fuel - dt * (0.26 + p.throttle * 0.48) * this.damage.fuelFactor);
 
     const desiredDir = (this.input.left ? -1 : 0) + (this.input.right ? 1 : 0);
 
-    let targetSpeed = 28 + p.throttle * 82;
+    const engineFactor = this.damage.engineFactor;
+    let targetSpeed = (28 + p.throttle * 82) * engineFactor;
     if (!p.engineOn) targetSpeed = 18;
     const diff = targetSpeed - p.speed;
     const rate = diff > 0 ? 20 : 9;
     p.speed += clamp(diff, -rate * dt, rate * dt);
     if (!p.engineOn) p.speed -= 4.5 * dt;
     p.speed -= Math.sin(p.pitch) * 17 * dt;
-    p.speed = clamp(p.speed, 0, CONFIG.maxSpeed);
+    p.speed = clamp(p.speed, 0, CONFIG.maxSpeed * engineFactor);
 
     const pitchInput = (this.input.up ? 1 : 0) - (this.input.down ? 1 : 0);
     // Keyboard has full authority while held. With the keyboard neutral, the
@@ -902,10 +937,10 @@ class Game {
       const stallDepth = clamp((CONFIG.stallSpeed - p.speed) / CONFIG.stallSpeed, 0, 1);
       pitchTarget = -0.12 - stallDepth * 0.23;
     }
-    p.pitch = damp(p.pitch, pitchTarget, stalled ? 1.5 : 3.0, dt);
+    p.pitch = damp(p.pitch, pitchTarget, stalled ? 1.5 : 3.0 * this.damage.controlFactor, dt);
 
     const turnAltitudeLoss = this.updateTurn(dt, desiredDir);
-    p.speed = clamp(p.speed, 0, CONFIG.maxSpeed);
+    p.speed = clamp(p.speed, 0, CONFIG.maxSpeed * engineFactor);
 
     const turnPhase = clamp(p.turnPhase, 0, Math.PI);
     p.facingX = p.dir * Math.cos(turnPhase);
@@ -927,7 +962,10 @@ class Game {
     // Fire selected ordnance.
     if (p.gunCooldown < 0) p.gunCooldown = 0;
     if ((p.weapon === 'mg') && this.input.fire && p.gunCooldown <= 0) {
-      if (p.ammo > 0) {
+      if (this.damage.gunJammed) {
+        p.gunCooldown = 0.35;
+        this.audio.warning();
+      } else if (p.ammo > 0) {
         combat.firePlayerGuns();
         p.ammo--;
         p.gunCooldown = 0.075;
@@ -1037,6 +1075,7 @@ class Game {
       p.ammo = p.maxAmmo;
       p.bombs = p.maxBombs;
       p.rockets = p.maxRockets;
+      this.damage.reset();
       p.weapon = 'mg';
       p.dir = 1;
       p.visualYaw = 0;
@@ -1082,7 +1121,8 @@ class Game {
     this.crashReason = reason;
     this.lives--;
     this.updateLivesIcons();
-    const water = reason === 'water' || (reason === 'collision' && world.heightAt(p.x, p.z) <= 0.15);
+    const water = reason === 'water'
+      || ((reason === 'collision' || reason === 'fire') && world.heightAt(p.x, p.z) <= 0.15);
     const crashPos = new THREE.Vector3(p.x, Math.max(p.y, water ? 1.0 : world.heightAt(p.x, p.z)), p.z);
     if (water) {
       particles.explosion(crashPos, 2.2, true);
@@ -1111,6 +1151,8 @@ class Game {
   respawnOnCarrier() {
     const sortieWas = this.sortie;
     this.player = this.makePlayerState();
+    this.damage.reset();
+    this.approach.reset();
     this.mouseAimTracking = false;
     this.player.x = -57;
     this.player.y = CONFIG.deckY + 2.2;
@@ -1142,12 +1184,20 @@ class Game {
     const p = this.player;
     if (!p.alive) return;
     if (this.mode === 'flying') {
+      this.damage.update(dt);
+      if (this.mode !== 'flying') return;
       // Urgent voice cues are rate-limited through the audio engine as well.
       if (this.warningTimer <= 0) {
         const groundAhead = world.heightAt(p.x + p.facingX * 56, p.z);
         if (p.speed < CONFIG.stallSpeed) {
           this.audio.warning();
           this.warningTimer = 1.5;
+        } else if (this.damage.state.fire > 0) {
+          this.audio.warning();
+          this.warningTimer = 2.4;
+        } else if (this.damage.state.engine < 30) {
+          this.audio.warning();
+          this.warningTimer = 2.4;
         } else if (p.fuel < 15) {
           this.audio.warning();
           this.warningTimer = 2.2;
@@ -1179,7 +1229,7 @@ class Game {
         const backX = p.x - Math.cos(yaw) * 5.1;
         const backZ = p.z + Math.sin(yaw) * 5.1;
         if (this.exhaustTimer <= 0) {
-          const damaged = p.health < 55;
+          const damaged = p.health < 55 || this.damage.state.engine < 55;
           particles.smoke(backX, p.y - 0.15, backZ, damaged ? 2 : 1, {
             color: damaged ? 0x272b28 : 0x9a9b8c,
             size: damaged ? 1.6 : 0.75,
@@ -1220,7 +1270,7 @@ class Game {
   updateEngineAudio(dt) {
     const p = this.player;
     const active = this.started && !this.paused && ['ready', 'takeoff', 'flying'].includes(this.mode) && p.alive;
-    this.audio.updateEngine(p.speed, p.throttle, active && p.engineOn, p.health < 50);
+    this.audio.updateEngine(p.speed, p.throttle, active && p.engineOn, p.health < 50 || this.damage.state.engine < 50);
   }
 
   updateCamera(dt, snap = false) {
@@ -1319,13 +1369,14 @@ class Game {
       const gh = world.heightAt(p.x + p.facingX * 46, p.z);
       let warn = '';
       if (p.speed < CONFIG.stallSpeed) warn = 'STALL · NOSE DOWN';
+      else if (this.damage.warning) warn = this.damage.warning;
       else if (p.fuel < 16) warn = 'FUEL CRITICAL';
       else if (p.health < 25) warn = 'AIRFRAME CRITICAL';
       else if (gh > 3 && p.y - gh < 9) warn = 'TERRAIN · PULL UP';
       setText(ui.warning, warn);
       ui.warning.classList.toggle('visible', !!warn);
       ui.warning.style.opacity = warn ? '' : '0';
-      ui.fuelTint.classList.toggle('visible', p.fuel < 18 || p.health < 25);
+      ui.fuelTint.classList.toggle('visible', p.fuel < 18 || p.health < 25 || this.damage.state.fire > 0);
     } else {
       ui.warning.classList.remove('visible');
       ui.warning.style.opacity = '0';
@@ -1346,6 +1397,8 @@ class Game {
         objective = 'Carrier approach · <em>below 90 knots, wings level</em>';
       } else if (p.fuel < 22 || p.ammo < 90 || (p.bombs <= 0 && p.rockets <= 0)) {
         objective = 'Low supplies · <em>return to Wasp</em>';
+      } else if (this.missions?.active) {
+        objective = this.missions.objectiveHtml;
       } else if (this.combat?.fighters?.length) {
         objective = 'Air threat · <em>bandits on radar</em>';
       } else {
@@ -1358,7 +1411,7 @@ class Game {
 
     // Carrier bearing readout.
     const dx = CONFIG.carrierX - p.x;
-    if (this.started && ['flying', 'takeoff'].includes(this.mode) && Math.abs(dx) > 260) {
+    if (this.started && ['flying', 'takeoff'].includes(this.mode) && Math.abs(dx) > 260 && !this.approach.visible) {
       const arrow = dx < 0 ? '◀' : '▶';
       ui.carrierTag.classList.add('visible');
       const arrowEl = ui.carrierTag.querySelector('.carrier-arrow');
@@ -1376,6 +1429,69 @@ class Game {
     const headingOffset = ((-p.x * 0.12) % 31 + 31) % 31;
     ui.headingTicks.style.transform = `translateX(-${headingOffset}px)`;
     this.updateTacticalStatus();
+  }
+
+  updateTargetMarker(dt = 1 / 60) {
+    if (!ui.targetMarker || !this.missions) return;
+    const target = this.mode === 'flying' && this.missions.active ? this.missions.getTarget() : null;
+    if (!target) {
+      ui.targetMarker.classList.remove('visible');
+      this.targetMarkerTarget = null;
+      this.targetMarkerOffscreen = false;
+      return;
+    }
+    const p = this.player;
+    const wy = target.type === 'fighter' ? target.y : target.y + (target.elevated || 0);
+    const point = _v3.set(target.x, wy, target.z).project(camera);
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const rawX = (point.x * 0.5 + 0.5) * W;
+    const rawY = (-point.y * 0.5 + 0.5) * H;
+    const behind = point.z < -1 || point.z > 1;
+    if (behind) {
+      // Once a target passes behind the camera, showing it at a guessed edge
+      // makes the marker jump across the screen. Hide it until it is in front again.
+      ui.targetMarker.classList.remove('visible');
+      this.targetMarkerTarget = null;
+      this.targetMarkerOffscreen = false;
+      return;
+    }
+    const rawOff = rawX < 56 || rawX > W - 56 || rawY < 64 || rawY > H - 64;
+    // Small hysteresis band so a target hovering at the screen edge cannot
+    // flip between the on-screen and clamped positions every frame.
+    if (rawOff) this.targetMarkerOffscreen = true;
+    else if (rawX > 74 && rawX < W - 74 && rawY > 82 && rawY < H - 82) this.targetMarkerOffscreen = false;
+    const offscreen = this.targetMarkerOffscreen;
+
+    let desiredX = rawX;
+    let desiredY = rawY;
+    if (offscreen) {
+      // Clamp the projected point instead of picking a side from world-space
+      // direction. This keeps the marker on the edge it actually left from.
+      desiredX = clamp(rawX, 64, W - 64);
+      desiredY = clamp(rawY, 84, H - 190);
+    }
+
+    if (target !== this.targetMarkerTarget) {
+      this.targetMarkerTarget = target;
+      this.targetMarkerPos.x = desiredX;
+      this.targetMarkerPos.y = desiredY;
+    } else {
+      const lambda = offscreen ? 12 : 18;
+      this.targetMarkerPos.x = damp(this.targetMarkerPos.x, desiredX, lambda, dt);
+      this.targetMarkerPos.y = damp(this.targetMarkerPos.y, desiredY, lambda, dt);
+    }
+
+    const distance = Math.hypot(target.x - p.x, target.y - p.y) * 0.0015;
+    const name = target.type === 'fighter'
+      ? (target.ace ? 'ACE' : 'FIGHTER')
+      : (UNIT_STATS[target.type]?.name || target.name || 'TARGET');
+    const label = `${name} · ${distance.toFixed(1)} KM`;
+    if (ui.targetLabel.textContent !== label) ui.targetLabel.textContent = label;
+    ui.targetMarker.classList.add('visible');
+    ui.targetMarker.classList.toggle('offscreen', offscreen);
+    ui.targetMarker.style.left = `${this.targetMarkerPos.x}px`;
+    ui.targetMarker.style.top = `${this.targetMarkerPos.y}px`;
   }
 
   updateTacticalStatus() {
@@ -1469,6 +1585,8 @@ class Game {
       `TURN ${turn}`,
       `BANK ${p.bank.toFixed(2)}`,
       `HP ${p.health.toFixed(0)}`,
+      `DMG E${this.damage.state.engine.toFixed(0)} C${this.damage.state.controls.toFixed(0)} G${this.damage.state.guns.toFixed(0)} F${this.damage.state.fuel.toFixed(0)} FIRE${this.damage.state.fire.toFixed(0)}`,
+      `QUAL ${this.quality?.label ?? '-'}`,
       `UNITS ${combat.units.length}`,
       `BANDITS ${combat.fighters.length}`,
       `BULLETS ${combat.bullets.length}`,
@@ -1517,6 +1635,7 @@ class Game {
     ui.damageFlash.classList.add('hit');
     this.audio.noiseBurst(0.11, 0.2, 'lowpass', 500, this.audio.master);
     particles.sparks(p.x, p.y, p.z, 7, 12, 0xffb55e);
+    if (p.health > 0) this.damage.applyHit(amount, source);
     if (p.health <= 0) {
       p.health = 0;
       this.crash(source === 'collision' ? 'collision' : 'shot down');
@@ -1528,6 +1647,7 @@ class Game {
   }
 
   onEnemyDestroyed(unit) {
+    this.missions.onEnemyDestroyed(unit);
     const value = unit.score || UNIT_STATS[unit.type]?.score || 100;
     this.score += value;
     this.kills++;

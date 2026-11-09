@@ -572,3 +572,65 @@
     body.touch #touchFire{width:82px;height:82px}
     body.touch .hud-bottom{bottom:calc(140px + env(safe-area-inset-bottom))}
   }
+
+  /* ---------- carrier approach / LSO meatball ---------- */
+  #approach{
+    position:absolute;left:max(22px,env(safe-area-inset-left));top:104px;
+    display:none;align-items:center;gap:10px;padding:6px 12px;
+    border:1px solid rgba(125,228,212,.22);background:rgba(5,20,24,.74);
+    color:var(--cyan);font-size:8px;letter-spacing:.16em;text-transform:uppercase;
+    clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);
+    backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);pointer-events:none
+  }
+  #approach.visible{display:flex}
+  #approach.good{border-color:rgba(159,228,118,.55)}
+  #approach.danger{border-color:rgba(255,107,81,.6)}
+  .approach-label{font-size:7px;color:var(--gold);letter-spacing:.2em}
+  .approach-rail{
+    position:relative;width:10px;height:28px;
+    border-left:1px solid rgba(125,228,212,.35);border-right:1px solid rgba(125,228,212,.35);
+    background:linear-gradient(180deg,rgba(255,107,81,.2),rgba(125,228,212,.08),rgba(255,107,81,.2))
+  }
+  .approach-center{position:absolute;left:-4px;right:-4px;top:50%;height:1px;background:rgba(125,228,212,.65)}
+  .approach-ball{
+    position:absolute;left:50%;top:50%;width:10px;height:10px;border-radius:50%;
+    background:var(--gold);box-shadow:0 0 8px rgba(255,210,122,.85);
+    transform:translate(-50%,-50%)
+  }
+  .approach-stack{display:flex;flex-direction:column;gap:2px;text-align:left}
+  .approach-stack b{font-family:var(--display);font-size:10px;font-weight:400;letter-spacing:.14em;color:var(--cream)}
+  .approach-stack b[data-tone="red"]{color:var(--red)}
+  .approach-stack b[data-tone="amber"]{color:var(--amber)}
+  .approach-stack b[data-tone="green"]{color:var(--green)}
+  .approach-stack small{font-size:7px;letter-spacing:.12em;color:rgba(244,232,202,.62)}
+  .msg.amber .msg-main{color:var(--amber)}
+
+  body.touch #approach{
+    left:max(8px,env(safe-area-inset-left));top:calc(104px + env(safe-area-inset-top));
+    gap:8px;padding:4px 9px;font-size:7px;
+    backdrop-filter:none;-webkit-backdrop-filter:none
+  }
+  @media (orientation:portrait){
+    body.touch #approach{top:calc(144px + env(safe-area-inset-top))}
+  }
+  @media (orientation:landscape){
+    body.touch #approach{top:calc(104px + env(safe-area-inset-top))}
+  }
+
+  /* ---------- mission target marker ---------- */
+  #targetMarker{
+    position:absolute;left:-100px;top:-100px;display:none;flex-direction:column;align-items:center;gap:3px;
+    transform:translate(-50%,-50%);pointer-events:none;z-index:22
+  }
+  #targetMarker.visible{display:flex}
+  .target-diamond{
+    width:12px;height:12px;border:1px solid var(--amber);transform:rotate(45deg);
+    box-shadow:0 0 9px rgba(255,174,74,.45)
+  }
+  .target-label{
+    font-size:7px;letter-spacing:.14em;color:var(--amber);text-transform:uppercase;
+    white-space:nowrap;text-shadow:0 1px 4px rgba(0,0,0,.8);
+    background:rgba(3,14,18,.68);padding:2px 5px;border:1px solid rgba(255,174,74,.22);border-radius:2px
+  }
+  #targetMarker.offscreen .target-diamond{border-color:var(--red);box-shadow:0 0 9px rgba(255,107,81,.45)}
+  #targetMarker.offscreen .target-label{color:var(--red)}

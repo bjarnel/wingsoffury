@@ -56,6 +56,21 @@ On phones and tablets the game switches to an on-screen layout:
 
 Landscape gives the widest view, but the portrait layout is fully playable. The HUD, safe-area insets, and pixel ratio are tuned for small screens.
 
+## Mission and damage systems
+
+- **Mission director** — sorties cycle through bunker strikes, flak suppression, fighter sweeps, and ace duels. Each objective has a score bonus and the cycle repeats with tougher counts.
+- **Ace duels** — a tougher, more accurate enemy ace with more health and a higher bounty.
+- **Subsystem damage** — hits can damage the engine, controls, guns, or fuel tank, or start a fire. Engine damage reduces top speed, control damage reduces turn authority, gun damage causes jams, and fuel leaks increase consumption. Landing repairs everything.
+- **Carrier approach guidance** — an LSO meatball appears near the carrier, with calls such as `TOO HIGH`, `TOO FAST`, `WINGS LEVEL`, and `CALL THE BALL`.
+
+## PWA and adaptive quality
+
+The production build is installable and works offline:
+
+- `public/manifest.webmanifest` plus home-screen icons.
+- `public/sw.js` caches the app shell and runtime assets.
+- Adaptive quality lowers pixel ratio and shadows if FPS stays low, then raises them again when there is headroom.
+
 ## Source layout
 
 ```
@@ -72,7 +87,14 @@ src/world/IslandWorld.js      procedural island chunk streaming
 src/combat.js                 targets, weapons, projectiles, enemy fighters
 src/ui/hud.js                 HUD element references and ranks
 src/game/Game.js              game loop and aircraft/carrier state machine
+src/game/MissionDirector.js    mission cycle, objectives, ace spawns
+src/game/DamageModel.js        subsystem damage, fire, gun jams
+src/game/ApproachGuidance.js   LSO meatball and carrier calls
+src/render/QualityManager.js   adaptive DPR/shadow quality
 src/assets/wilhelm_scream.ogg CC0 Wilhelm scream sound effect
+public/manifest.webmanifest  PWA manifest
+public/sw.js                 offline service worker
+public/icons/                home-screen icons
 ```
 
 ## Assets and attribution

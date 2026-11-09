@@ -27,3 +27,12 @@ document.addEventListener('visibilitychange', () => {
 if (import.meta.env.DEV) {
   Object.defineProperty(window, '__WOF', { value: game, configurable: false, writable: false });
 }
+
+// Installable PWA: only register in production so Vite HMR stays unaffected.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register(`${import.meta.env.BASE_URL}sw.js`, { updateViaCache: 'none' })
+      .catch((err) => console.warn('Service worker registration failed:', err));
+  });
+}

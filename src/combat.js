@@ -8,16 +8,16 @@ import { world } from './world/IslandWorld.js';
 import {
   addPart, mergeParts, playerMaterial, enemyMaterial, propsMaterial, darkMaterial,
 } from './models/parts.js';
-import { createFighterModel, enemyPalette } from './models/aircraft.js';
+import { createFighterModel, enemyPalette, acePalette } from './models/aircraft.js';
 import {
   unitMaterial, soldierGeometry,
   createAAGun, createBunker, createBarracks, createTank,
 } from './models/units.js';
 
-function createEnemyFighterMesh() {
-  const fighter = createFighterModel(enemyPalette, false);
+function createEnemyFighterMesh(ace = false) {
+  const fighter = createFighterModel(ace ? acePalette : enemyPalette, false);
   fighter.userData.bank = fighter.userData.bank;
-  fighter.scale.setScalar(1.12);
+  fighter.scale.setScalar(ace ? 1.3 : 1.12);
   return fighter;
 }
 
@@ -629,38 +629,76 @@ CombatSystem.prototype.updateRockets = function (dt) {
   }
 };
 
-CombatSystem.prototype.spawnEnemyFighter = function () {
+CombatSystem.prototype.spawnEnemyFighter = function (options = {}) {
   const player = this.game.player;
-  const root = createEnemyFighterMesh();
+  const ace = !!options.ace;
+  const wingman = !!options.wingman;
+  const root = createEnemyFighterMesh(ace);
   const facing = Math.sign(player.facingX ?? player.dir) || player.dir;
-  const dir = -facing;
-  root.position.set(player.x + facing * 540 + rand(-60, 60), clamp(player.y + rand(15, 55), 32, 190), rand(-5, 5));
+  const spawnSide = options.behind ? -facing : facing;
+  const dir = -spawnSide;
+  const distance = options.distance ?? (wingman ? 520 : 540);
+  const offsetX = options.offsetX ?? rand(-60, 60);
+  const offsetY = options.offsetY ?? rand(15, 55);
+  root.position.set(
+    player.x + spawnSide * distance + offsetX,
+    clamp(player.y + offsetY, 32, 190),
+    rand(-5, 5)
+  );
   scene.add(root);
+  const speed = ace ? rand(108, 128) : rand(82, 108);
   const f = {
     id: `fighter-${performance.now()}-${Math.random()}`,
     type: 'fighter',
-    name: 'FIGHTER',
+    name: ace ? 'ACE' : 'FIGHTER',
+    ace,
     group: root,
-    x: root.position.x, y: root.position.y, z: root.position.z,
-    vx: dir * rand(82, 110),
+    x: root.position.x,
+    y: root.position.y,
+    z: root.position.z,
+    vx: dir * speed,
     vy: 0,
     dir,
-    health: 55,
-    maxHealth: 55,
-    fireTimer: rand(1.2, 2.3),
+    speed,
+    health: ace ? 140 : 55,
+    maxHealth: ace ? 140 : 55,
+    fireTimer: ace ? rand(0.7, 1.4) : rand(1.2, 2.3),
     age: 0,
     alive: true,
     phase: rand(0, TAU),
     baseY: root.position.y,
-    score: 900,
+    score: ace ? 2600 : 900,
     elevation: 2,
-    radius: 3,
+    radius: ace ? 4 : 3,
+    state: 'approach',
+    stateTimer: 0,
+    evadeDir: 1,
+    skill: ace ? 1 : 0.55,
+    visualYaw: dir > 0 ? 0 : Math.PI,
   };
+  f.group.rotation.y = f.visualYaw;
   this.fighters.push(f);
   this.banditWave++;
-  if (this.banditWave === 1) {
+
+  if (ace) {
+    this.game.notify('ACE INBOUND', 'Enemy ace · high threat', 3.0, 'red');
+    this.game.audio.warning();
+  } else if (!wingman && this.banditWave === 1) {
     this.game.notify('BANDITS', 'Enemy fighter · twelve o’clock', 2.4, 'red');
     this.game.audio.warning();
+  }
+
+  // High-scoring players occasionally get a two-ship formation.
+  if (!ace && !wingman && this.game.score > 3500 && Math.random() < 0.45) {
+    const maxBandits = this.game.score > 12000 ? 3 : 2;
+    if (this.fighters.length < maxBandits) {
+      this.spawnEnemyFighter({
+        wingman: true,
+        distance: distance + rand(-30, 40),
+        offsetX: rand(-90, 90),
+        offsetY: rand(18, 42),
+      });
+    }
   }
   return f;
 };
@@ -673,34 +711,89 @@ CombatSystem.prototype.updateFighters = function (dt) {
     if (!f) continue;
     if (!f.alive) { this.fighters.splice(i, 1); continue; }
     f.age += dt;
-    const desiredY = clamp(player.y + Math.sin(f.age * 0.8 + f.phase) * 12 + 4, 20, 190);
-    f.vy = damp(f.vy, clamp((desiredY - f.y) * 0.75, -20, 20), 1.8, dt);
+    const dx = player.x - f.x;
+    const dy = player.y - f.y;
+    const absDx = Math.abs(dx);
+
+    // --- simple pursuit / overshoot / re-attack state machine --------------------------------
+    if (f.state === 'approach') {
+      f.dir = Math.sign(dx) || f.dir;
+      const desiredVx = f.dir * f.speed * (f.ace ? 1.08 : 1);
+      const desiredVy = clamp(dy * 0.75, -34, 34)
+        + Math.sin(f.age * 1.1 + f.phase) * (f.ace ? 6 : 10);
+      f.vx = damp(f.vx, desiredVx, 1.6, dt);
+      f.vy = damp(f.vy, desiredVy, 1.8, dt);
+      if (absDx < 95 && Math.abs(dy) < 48) {
+        f.state = 'overshoot';
+        f.stateTimer = f.ace ? 0.8 : 1.0;
+      }
+    } else if (f.state === 'overshoot') {
+      f.vx = damp(f.vx, f.dir * f.speed * 1.05, 1.5, dt);
+      f.vy = damp(f.vy, f.ace ? 32 : 24, 1.8, dt);
+      f.stateTimer -= dt;
+      if (f.stateTimer <= 0) {
+        f.state = 'reposition';
+        f.stateTimer = f.ace ? 1.0 : 1.4;
+        f.dir = -f.dir;
+      }
+    } else if (f.state === 'reposition') {
+      f.vx = damp(f.vx, f.dir * f.speed * 0.95, 1.4, dt);
+      f.vy = damp(f.vy, clamp((player.y + 45 - f.y) * 0.7, -22, 32), 1.6, dt);
+      f.stateTimer -= dt;
+      if (f.stateTimer <= 0) f.state = 'approach';
+    } else if (f.state === 'evade') {
+      f.vx = damp(f.vx, f.dir * f.speed * 1.08, 1.5, dt);
+      f.vy = damp(f.vy, f.evadeDir * (f.ace ? 40 : 30), 2.2, dt);
+      f.stateTimer -= dt;
+      if (f.stateTimer <= 0) f.state = 'approach';
+    }
+
+    if (f.state !== 'evade' && f.health < f.maxHealth * 0.55 && Math.random() < dt * (f.ace ? 1.1 : 0.6)) {
+      f.state = 'evade';
+      f.stateTimer = rand(0.8, 1.6);
+      f.evadeDir = Math.random() < 0.5 ? -1 : 1;
+    }
+
     f.x += f.vx * dt;
     f.y += f.vy * dt;
+    f.y = clamp(f.y, 8, 210);
     f.z = damp(f.z, 0, 0.7, dt);
     f.group.position.set(f.x, f.y, f.z);
+
     const u = f.group.userData;
     const faceYaw = f.vx >= 0 ? 0 : Math.PI;
-    f.group.rotation.y = faceYaw;
-    if (u.bank) u.bank.rotation.x = damp(u.bank.rotation.x, clamp(-f.vy * 0.018, -0.55, 0.55), 3, dt);
-    if (u.pitch) u.pitch.rotation.z = damp(u.pitch.rotation.z, clamp(f.vy * 0.011, -0.28, 0.28), 3, dt);
+    f.visualYaw = damp(f.visualYaw, faceYaw, 4.5, dt);
+    f.group.rotation.y = f.visualYaw;
+    if (u.bank) u.bank.rotation.x = damp(u.bank.rotation.x, clamp(-f.vy * 0.018, -0.6, 0.6), 3, dt);
+    if (u.pitch) u.pitch.rotation.z = damp(u.pitch.rotation.z, clamp(f.vy * 0.011, -0.3, 0.3), 3, dt);
     if (u.prop) u.prop.rotation.x += dt * 38;
     if (u.blur) u.blur.material.opacity = 0.19;
     if (Math.random() < dt * 9) {
       const back = f.vx < 0 ? 4.2 : -4.2;
-      particles.smoke(f.x + back, f.y - 0.1, f.z, 1, { color: 0x89918a, size: 0.7, spread: 0.2, speed: 0.5, vy: 0.2, life: 0.9, alpha: 0.16, growth: 1.8 });
+      particles.smoke(f.x + back, f.y - 0.1, f.z, 1, {
+        color: 0x89918a, size: 0.7, spread: 0.2, speed: 0.5, vy: 0.2, life: 0.9, alpha: 0.16, growth: 1.8,
+      });
+    }
+
+    // Terrain and water are lethal for bandits too.
+    const ground = world.heightAt(f.x, f.z);
+    if (f.y <= Math.max(ground, 0) + 2.0) {
+      this.damageFighter(f, 999);
+      continue;
     }
 
     if (flying) {
       f.fireTimer -= dt;
-      const dx = player.x - f.x;
-      const dy = player.y - f.y;
-      if (Math.abs(dx) < 390 && f.fireTimer <= 0) {
+      const inRange = absDx < (f.ace ? 460 : 390) && Math.abs(dy) < 85;
+      if (inRange && f.state !== 'evade' && f.fireTimer <= 0) {
         const speed = 250;
-        const lead = Math.abs(dx) / speed * 0.5;
-        const angle = Math.atan2(player.y + 1.0 + player.vy * lead * 0.3 - (f.y - 0.2),
-          player.x + player.vx * lead * 0.3 - f.x) + rand(-0.035, 0.035);
-        const mx = f.x + Math.sign(f.vx) * 3.2;
+        const lead = absDx / speed * 0.5;
+        const spread = f.ace ? 0.018 : 0.045;
+        const angle = Math.atan2(
+          player.y + 1.0 + player.vy * lead * 0.3 - (f.y - 0.2),
+          player.x + player.vx * lead * 0.3 - f.x
+        ) + rand(-spread, spread);
+        const mx = f.x + (Math.sign(f.vx) || f.dir) * 3.2;
         const my = f.y - 0.2;
         this.bullets.push({
           x: mx, y: my, z: f.z,
@@ -708,18 +801,25 @@ CombatSystem.prototype.updateFighters = function (dt) {
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed,
           vz: 0, life: 2.0,
-          owner: 'enemy', damage: 7, color: 0xff8156, radius: 0.14, age: 0,
+          owner: 'enemy', damage: f.ace ? 9 : 7, color: 0xff8156, radius: 0.14, age: 0,
         });
-        particles.fire(mx, my, f.z, 2, { size: 1.0, life: 0.12, vx: Math.cos(angle) * 6, vy: Math.sin(angle) * 6 });
+        particles.fire(mx, my, f.z, 2, {
+          size: 1.0, life: 0.12, vx: Math.cos(angle) * 6, vy: Math.sin(angle) * 6,
+        });
         this.game.audio.enemyShot(0.04, clamp((f.x - player.x) / 320, -1, 1));
-        f.fireTimer = rand(1.05, 2.2);
+        f.fireTimer = f.ace ? rand(0.8, 1.6) : rand(1.1, 2.2);
       }
       if (Math.hypot(player.x - f.x, player.y - f.y) < 7.5) {
         this.damagePlayerCollision(f);
         continue;
       }
     }
-    if (this.fighters.includes(f) && (f.age > 21 || Math.abs(f.x - player.x) > 1050)) this.removeFighter(f);
+
+    const maxAge = f.ace ? 60 : 32;
+    const maxDistance = f.ace ? 3000 : 1500;
+    if (this.fighters.includes(f) && (f.age > maxAge || Math.abs(f.x - player.x) > maxDistance)) {
+      this.removeFighter(f);
+    }
   }
 };
 
@@ -752,6 +852,7 @@ CombatSystem.prototype.damageFighter = function (f, amount) {
 
 CombatSystem.prototype.removeFighter = function (f) {
   if (!f) return;
+  f.alive = false;
   if (f.group) {
     scene.remove(f.group);
     f.group.traverse(o => {
